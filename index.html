@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Geometric Harmony</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a1a;
+    --surface: #12122a;
+    --accent: #7b68ee;
+    --gold: #ffd700;
+    --text: #e0e0f0;
+    --dim: #6a6a8a;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ── Header ── */
+  header {
+    width: 100%;
+    padding: 1rem;
+    text-align: center;
+    background: linear-gradient(180deg, #15153a, transparent);
+  }
+  header h1 {
+    font-size: clamp(1.2rem, 4vw, 1.8rem);
+    font-weight: 300;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #7b68ee, #ff6ec7, #ffd700);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .level-info {
+    font-size: clamp(0.75rem, 2.5vw, 0.9rem);
+    color: var(--dim);
+    margin-top: 0.3rem;
+  }
+
+  /* ── Game area ── */
+  #game-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 600px;
+    padding: 0.5rem;
+    gap: 1.2rem;
+  }
+
+  /* Target pattern preview */
+  #target-section {
+    text-align: center;
+  }
+  #target-section p {
+    font-size: 0.8rem;
+    color: var(--dim);
+    margin-bottom: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  #target-canvas {
+    border: 1px solid rgba(123,104,238,0.25);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  /* Player grid */
+  #grid-section {
+    text-align: center;
+  }
+  #grid-section p {
+    font-size: 0.8rem;
+    color: var(--dim);
+    margin-bottom: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  #grid-container {
+    display: grid;
+    gap: 6px;
+    justify-content: center;
+  }
+  .cell {
+    width: clamp(50px, 15vw, 80px);
+    height: clamp(50px, 15vw, 80px);
+    border: 2px solid rgba(123,104,238,0.2);
+    border-radius: 10px;
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .cell:hover { border-color: rgba(123,104,238,0.5); }
+  .cell:active { transform: scale(0.93); }
+  .cell.correct {
+    border-color: var(--gold);
+    box-shadow: 0 0 15px rgba(255,215,0,0.3);
+  }
+  .cell canvas { pointer-events: none; }
+
+  /* ── Palette ── */
+  #palette-section {
+    text-align: center;
+    width: 100%;
+    max-width: 500px;
+  }
+  #palette-section p {
+    font-size: 0.8rem;
+    color: var(--dim);
+    margin-bottom: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  #palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    padding: 0.5rem;
+  }
+  .palette-item {
+    width: clamp(44px, 12vw, 64px);
+    height: clamp(44px, 12vw, 64px);
+    border: 2px solid rgba(123,104,238,0.3);
+    border-radius: 10px;
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .palette-item:hover { border-color: rgba(123,104,238,0.6); }
+  .palette-item:active { transform: scale(0.9); }
+  .palette-item.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(123,104,238,0.4);
+    transform: scale(1.05);
+  }
+
+  /* ── Controls ── */
+  #controls {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.8rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    font-family: inherit;
+    font-size: clamp(0.75rem, 2.5vw, 0.85rem);
+    padding: 0.5rem 1.2rem;
+    border: 1px solid rgba(123,104,238,0.4);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  button:hover { background: rgba(123,104,238,0.15); border-color: var(--accent); }
+
+  /* ── Win overlay ── */
+  #win-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10,10,26,0.92);
+    z-index: 100;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    animation: fadeIn 0.4s;
+  }
+  #win-overlay.show { display: flex; }
+  #win-overlay h2 {
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
+    font-weight: 300;
+    background: linear-gradient(135deg, #ffd700, #ff6ec7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  #win-overlay p { color: var(--dim); }
+  #completed-canvas {
+    border-radius: 16px;
+    box-shadow: 0 0 40px rgba(123,104,238,0.3);
+  }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ── Responsive ── */
+  @media (min-width: 768px) {
+    #game-area {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 2rem;
+      max-width: 900px;
+    }
+    #target-section, #grid-section { flex: 0 0 auto; }
+    #palette-section { flex: 0 0 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Geometric Harmony</h1>
+  <div class="level-info">Level <span id="level-num">1</span> &mdash; <span id="level-name"></span></div>
+</header>
+
+<div id="game-area">
+  <div id="target-section">
+    <p>Target Pattern</p>
+    <canvas id="target-canvas"></canvas>
+  </div>
+
+  <div id="grid-section">
+    <p>Your Board</p>
+    <div id="grid-container"></div>
+  </div>
+
+  <div id="palette-section">
+    <p>Pick a Shape</p>
+    <div id="palette"></div>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="btn-clear">Clear</button>
+  <button id="btn-hint">Hint</button>
+  <button id="btn-check">Check</button>
+</div>
+
+<div id="win-overlay">
+  <h2>Beautiful!</h2>
+  <p>Pattern complete</p>
+  <canvas id="completed-canvas"></canvas>
+  <button id="btn-next">Next Level</button>
+</div>
+
+<script>
+// ── Shape drawing primitives ──
+const COLORS = [
+  '#7b68ee', '#ff6ec7', '#00cec9', '#ffd700',
+  '#ff6b6b', '#a29bfe', '#55efc4', '#fd79a8',
+  '#e17055', '#74b9ff',
+];
+
+function drawShape(ctx, type, cx, cy, r, color, rotation = 0) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 8;
+
+  switch (type) {
+    case 'circle':
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case 'triangle':
+      polygon(ctx, 3, r);
+      break;
+    case 'square':
+      polygon(ctx, 4, r);
+      break;
+    case 'pentagon':
+      polygon(ctx, 5, r);
+      break;
+    case 'hexagon':
+      polygon(ctx, 6, r);
+      break;
+    case 'star':
+      star(ctx, 5, r, r * 0.45);
+      break;
+    case 'diamond':
+      polygon(ctx, 4, r, Math.PI / 4);
+      break;
+    case 'ring':
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.arc(0, 0, r * 0.55, 0, Math.PI * 2, true);
+      ctx.fill();
+      ctx.stroke();
+      break;
+    case 'cross':
+      crossShape(ctx, r);
+      break;
+    case 'semicircle':
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      break;
+  }
+  ctx.restore();
+}
+
+function polygon(ctx, sides, r, offsetAngle = -Math.PI / 2) {
+  ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const a = offsetAngle + (Math.PI * 2 * i) / sides;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function star(ctx, points, outer, inner) {
+  ctx.beginPath();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = -Math.PI / 2 + (Math.PI * i) / points;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function crossShape(ctx, r) {
+  const w = r * 0.35;
+  ctx.beginPath();
+  ctx.rect(-w, -r, w * 2, r * 2);
+  ctx.rect(-r, -w, r * 2, w * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+// ── Levels ──
+const SHAPE_TYPES = ['circle','triangle','square','pentagon','hexagon','star','diamond','ring','cross','semicircle'];
+
+function generateLevel(levelNum) {
+  const gridSize = levelNum <= 2 ? 3 : levelNum <= 5 ? 4 : 5;
+  const numShapes = Math.min(3 + levelNum, SHAPE_TYPES.length);
+  const shapes = SHAPE_TYPES.slice(0, numShapes);
+  const colors = COLORS.slice(0, numShapes);
+  const rotations = [0, Math.PI / 6, Math.PI / 4, Math.PI / 3, Math.PI / 2];
+
+  const grid = [];
+  // Create a beautiful pattern with symmetry
+  for (let r = 0; r < gridSize; r++) {
+    grid[r] = [];
+    for (let c = 0; c < gridSize; c++) {
+      let idx;
+      if (levelNum <= 3) {
+        // Diagonal symmetry
+        idx = (r + c) % numShapes;
+      } else if (levelNum <= 6) {
+        // Mirror symmetry
+        const mr = Math.min(r, gridSize - 1 - r);
+        const mc = Math.min(c, gridSize - 1 - c);
+        idx = (mr + mc) % numShapes;
+      } else {
+        // Radial-ish symmetry
+        const dr = r - Math.floor(gridSize / 2);
+        const dc = c - Math.floor(gridSize / 2);
+        idx = (Math.abs(dr) + Math.abs(dc)) % numShapes;
+      }
+      const rot = rotations[(r * gridSize + c) % rotations.length] * (levelNum > 4 ? 1 : 0);
+      grid[r][c] = { shape: shapes[idx], color: colors[idx], rotation: rot };
+    }
+  }
+
+  const names = [
+    'Diagonal Flow', 'Color Cascade', 'Prism Weave',
+    'Mirror Lake', 'Crystal Grid', 'Kaleidoscope',
+    'Radiant Core', 'Stellar Map', 'Cosmic Bloom',
+    'Infinity Mosaic',
+  ];
+
+  return {
+    gridSize,
+    solution: grid,
+    palette: shapes.map((s, i) => ({ shape: s, color: colors[i] })),
+    name: names[(levelNum - 1) % names.length],
+  };
+}
+
+// ── Game state ──
+let currentLevel = 1;
+let level = null;
+let playerGrid = [];
+let selectedPalette = null;
+
+function init() {
+  level = generateLevel(currentLevel);
+  playerGrid = Array.from({ length: level.gridSize }, () =>
+    Array.from({ length: level.gridSize }, () => null)
+  );
+  selectedPalette = null;
+  document.getElementById('level-num').textContent = currentLevel;
+  document.getElementById('level-name').textContent = level.name;
+  document.getElementById('win-overlay').classList.remove('show');
+  renderTarget();
+  renderGrid();
+  renderPalette();
+}
+
+// ── Render target ──
+function renderTarget() {
+  const canvas = document.getElementById('target-canvas');
+  const cellPx = Math.min(48, Math.floor((window.innerWidth - 60) / level.gridSize));
+  const pad = 12;
+  const size = level.gridSize * cellPx + pad * 2;
+  canvas.width = size * devicePixelRatio;
+  canvas.height = size * devicePixelRatio;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, size, size);
+
+  for (let r = 0; r < level.gridSize; r++) {
+    for (let c = 0; c < level.gridSize; c++) {
+      const s = level.solution[r][c];
+      const cx = pad + c * cellPx + cellPx / 2;
+      const cy = pad + r * cellPx + cellPx / 2;
+      drawShape(ctx, s.shape, cx, cy, cellPx * 0.35, s.color, s.rotation);
+    }
+  }
+}
+
+// ── Render player grid ──
+function renderGrid() {
+  const container = document.getElementById('grid-container');
+  container.innerHTML = '';
+  container.style.gridTemplateColumns = `repeat(${level.gridSize}, clamp(50px, 15vw, 80px))`;
+
+  for (let r = 0; r < level.gridSize; r++) {
+    for (let c = 0; c < level.gridSize; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+
+      if (playerGrid[r][c]) {
+        const s = playerGrid[r][c];
+        const cvs = document.createElement('canvas');
+        const px = 60;
+        cvs.width = px * devicePixelRatio;
+        cvs.height = px * devicePixelRatio;
+        cvs.style.width = '100%';
+        cvs.style.height = '100%';
+        const ctx = cvs.getContext('2d');
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        drawShape(ctx, s.shape, px / 2, px / 2, px * 0.35, s.color, s.rotation);
+        cell.appendChild(cvs);
+      }
+
+      cell.addEventListener('click', () => onCellClick(r, c));
+      container.appendChild(cell);
+    }
+  }
+}
+
+function onCellClick(r, c) {
+  if (selectedPalette !== null) {
+    const p = level.palette[selectedPalette];
+    const sol = level.solution[r][c];
+    playerGrid[r][c] = { shape: p.shape, color: p.color, rotation: sol.rotation };
+    renderGrid();
+  } else {
+    // Clear cell
+    playerGrid[r][c] = null;
+    renderGrid();
+  }
+}
+
+// ── Render palette ──
+function renderPalette() {
+  const container = document.getElementById('palette');
+  container.innerHTML = '';
+  level.palette.forEach((p, i) => {
+    const item = document.createElement('div');
+    item.className = 'palette-item' + (selectedPalette === i ? ' selected' : '');
+    const cvs = document.createElement('canvas');
+    const px = 50;
+    cvs.width = px * devicePixelRatio;
+    cvs.height = px * devicePixelRatio;
+    cvs.style.width = '100%';
+    cvs.style.height = '100%';
+    const ctx = cvs.getContext('2d');
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    drawShape(ctx, p.shape, px / 2, px / 2, px * 0.35, p.color);
+    item.appendChild(cvs);
+    item.addEventListener('click', () => {
+      selectedPalette = selectedPalette === i ? null : i;
+      renderPalette();
+    });
+    container.appendChild(item);
+  });
+}
+
+// ── Check solution ──
+function checkSolution() {
+  let allCorrect = true;
+  const cells = document.querySelectorAll('.cell');
+  for (let r = 0; r < level.gridSize; r++) {
+    for (let c = 0; c < level.gridSize; c++) {
+      const idx = r * level.gridSize + c;
+      const placed = playerGrid[r][c];
+      const sol = level.solution[r][c];
+      if (placed && placed.shape === sol.shape && placed.color === sol.color) {
+        cells[idx].classList.add('correct');
+      } else {
+        cells[idx].classList.remove('correct');
+        allCorrect = false;
+      }
+    }
+  }
+  if (allCorrect) showWin();
+}
+
+function showWin() {
+  const overlay = document.getElementById('win-overlay');
+  overlay.classList.add('show');
+
+  // Draw completed pattern with glow
+  const canvas = document.getElementById('completed-canvas');
+  const cellPx = Math.min(64, Math.floor((window.innerWidth - 80) / level.gridSize));
+  const pad = 20;
+  const size = level.gridSize * cellPx + pad * 2;
+  canvas.width = size * devicePixelRatio;
+  canvas.height = size * devicePixelRatio;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  // Background
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 1.5);
+  grad.addColorStop(0, '#1a1a3e');
+  grad.addColorStop(1, '#0a0a1a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  for (let r = 0; r < level.gridSize; r++) {
+    for (let c = 0; c < level.gridSize; c++) {
+      const s = level.solution[r][c];
+      const cx = pad + c * cellPx + cellPx / 2;
+      const cy = pad + r * cellPx + cellPx / 2;
+      drawShape(ctx, s.shape, cx, cy, cellPx * 0.38, s.color, s.rotation);
+    }
+  }
+}
+
+function giveHint() {
+  // Find first empty or wrong cell and fill it
+  for (let r = 0; r < level.gridSize; r++) {
+    for (let c = 0; c < level.gridSize; c++) {
+      const placed = playerGrid[r][c];
+      const sol = level.solution[r][c];
+      if (!placed || placed.shape !== sol.shape || placed.color !== sol.color) {
+        playerGrid[r][c] = { shape: sol.shape, color: sol.color, rotation: sol.rotation };
+        renderGrid();
+        return;
+      }
+    }
+  }
+}
+
+// ── Controls ──
+document.getElementById('btn-clear').addEventListener('click', () => {
+  playerGrid = Array.from({ length: level.gridSize }, () =>
+    Array.from({ length: level.gridSize }, () => null)
+  );
+  renderGrid();
+});
+document.getElementById('btn-hint').addEventListener('click', giveHint);
+document.getElementById('btn-check').addEventListener('click', checkSolution);
+document.getElementById('btn-next').addEventListener('click', () => {
+  currentLevel++;
+  init();
+});
+
+// Handle resize
+window.addEventListener('resize', () => {
+  renderTarget();
+  renderGrid();
+  renderPalette();
+});
+
+// Start
+init();
+</script>
+</body>
+</html>
