@@ -601,8 +601,8 @@ function collideWorld(ent) {
     }
   }
 
-  // Remember previous feet row before moving vertically
-  const prevFeetRow = Math.floor((ent.y) / TILE);
+  // Remember feet Y before gravity move (for one-way platform check)
+  const prevFeetY = ent.y;
 
   // Vertical
   ent.y += ent.vy;
@@ -623,9 +623,11 @@ function collideWorld(ent) {
       ent.vy = 0;
       ent.grounded = true;
     }
-    // Platforms: only land on top when falling down and feet were above
-    if (isPlatform(c, bot2) && ent.vy > 0 && prevFeetRow < bot2) {
-      ent.y = bot2 * TILE;
+    // One-way platforms: land on top only when falling and feet were
+    // at or above the platform top edge before this frame's movement
+    const platTop = bot2 * TILE;
+    if (isPlatform(c, bot2) && ent.vy > 0 && prevFeetY <= platTop) {
+      ent.y = platTop;
       ent.vy = 0;
       ent.grounded = true;
     }
