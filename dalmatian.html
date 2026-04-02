@@ -112,7 +112,8 @@ tb('btn-left','left'); tb('btn-right','right'); tb('btn-jump','jump');
 // ═══════════════════════════════════════════
 function drawDalmatian(x, y, dir, frame, isHurt) {
   ctx.save();
-  ctx.translate(x, y);
+  // y = feet position from physics, shift drawing up so paws align with feet
+  ctx.translate(x, y - 14);
   if (dir < 0) { ctx.scale(-1, 1); }
 
   // Body
@@ -578,10 +579,11 @@ function tileAt(c, r) {
   return phase.map[r][c];
 }
 
-function isSolid(c, r) { return tileAt(c, r) > 0; }
+function isSolid(c, r) { return tileAt(c, r) === 1; }
+function isPlatform(c, r) { return tileAt(c, r) === 2; }
 
 function collideWorld(ent) {
-  // Horizontal
+  // Horizontal — only solid blocks stop you (not platforms)
   ent.x += ent.vx;
   const left = Math.floor((ent.x - ent.w/2) / TILE);
   const right = Math.floor((ent.x + ent.w/2 - 1) / TILE);
@@ -599,6 +601,9 @@ function collideWorld(ent) {
     }
   }
 
+  // Remember previous feet row before moving vertically
+  const prevFeetRow = Math.floor((ent.y) / TILE);
+
   // Vertical
   ent.y += ent.vy;
   ent.grounded = false;
@@ -608,11 +613,18 @@ function collideWorld(ent) {
   const bot2 = Math.floor(ent.y / TILE);
 
   for (let c = left2; c <= right2; c++) {
+    // Solid blocks: collide from all sides
     if (isSolid(c, top2) && ent.vy < 0) {
       ent.y = (top2 + 1) * TILE + ent.h;
       ent.vy = 0;
     }
     if (isSolid(c, bot2) && ent.vy > 0) {
+      ent.y = bot2 * TILE;
+      ent.vy = 0;
+      ent.grounded = true;
+    }
+    // Platforms: only land on top when falling down and feet were above
+    if (isPlatform(c, bot2) && ent.vy > 0 && prevFeetRow < bot2) {
       ent.y = bot2 * TILE;
       ent.vy = 0;
       ent.grounded = true;
