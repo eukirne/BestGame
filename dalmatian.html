@@ -698,21 +698,36 @@ function update() {
 
   // Enemy movement & collision
   for (const e of phase.enemies) {
+    if (e.dead) {
+      if (e.deadTimer > 0) e.deadTimer--;
+      continue;
+    }
     if (!e.baseY) e.baseY = e.y; // store original Y on first frame
     e.x = e.startX + Math.sin(frameCt * 0.025 + e.startX * 0.1) * e.range;
     e.y = e.baseY + Math.sin(frameCt * 0.04 + e.startX * 0.05) * 12;
   }
 
   for (const e of phase.enemies) {
-    if (player.hurtTimer > 0) break;
+    if (e.dead || player.hurtTimer > 0) continue;
     const dx = Math.abs(player.x - e.x);
-    const dy = Math.abs((player.y - player.h/2) - e.y);
-    if (dx < 18 && dy < 18) {
-      player.hp--;
-      player.hurtTimer = 60;
-      player.vy = -5;
-      player.vx = player.x < e.x ? -3 : 3;
-      if (player.hp <= 0) { player.alive = false; }
+    const feetY = player.y;        // feet position
+    const eCenterY = e.y;
+    const dy = Math.abs(feetY - player.h/2 - eCenterY);
+    if (dx < 20 && dy < 20) {
+      // Stomp: player is falling and feet are above enemy center
+      if (player.vy > 0 && feetY < eCenterY + 5) {
+        e.dead = true;
+        e.deadTimer = 30;
+        player.vy = -8; // bounce up
+        player.bones++;
+      } else {
+        // Hurt player
+        player.hp--;
+        player.hurtTimer = 60;
+        player.vy = -5;
+        player.vx = player.x < e.x ? -3 : 3;
+        if (player.hp <= 0) { player.alive = false; }
+      }
     }
   }
 
@@ -901,6 +916,18 @@ function draw() {
   // Enemies
   for (const e of phase.enemies) {
     if (e.x < cam.x - 40 || e.x > cam.x + W + 40) continue;
+    if (e.dead) {
+      // Poof animation
+      if (e.deadTimer > 0) {
+        const t = 1 - e.deadTimer / 30;
+        ctx.globalAlpha = 1 - t;
+        ctx.fillStyle = '#fff';
+        ctx.font = (14 + t * 10) + 'px sans-serif';
+        ctx.fillText('✨', e.x - 8, e.y - t * 20);
+        ctx.globalAlpha = 1;
+      }
+      continue;
+    }
     if (e.type === 'butterfly') drawButterfly(e.x, e.y, frameCt, e.color);
   }
 
