@@ -104,18 +104,17 @@ const touchArea = document.getElementById('touch-controls');
 
 let touchId = null;
 let touchActive = false;
-let touchPrev = null;      // previous frame's touch position
-let touchVelX = 0;         // smoothed horizontal finger velocity (px/frame)
-let touchVelY = 0;         // smoothed vertical finger velocity (px/frame)
-let touchMoveX = 0;        // -1 to 1 analog horizontal
+let touchStart = null;     // where finger first touched
+let touchPrev = null;      // previous touch position
+let touchDir = 0;          // locked-in direction: -1 left, 0 none, 1 right
+let touchRawVelY = 0;      // raw vertical velocity for flick detection
 let touchJumpPower = 0;    // 0 to 1 — set on flick, consumed on jump
-let flickCooldown = 0;     // frames until next flick allowed
+let flickCooldown = 0;
 
-const VEL_SMOOTH = 0.35;   // smoothing factor (lower = smoother)
-const MOVE_THRESHOLD = 1.5; // px/frame finger speed to start moving
-const FULL_SPEED_VEL = 12;  // px/frame finger speed for max run speed
-const FLICK_THRESHOLD = 8;  // px/frame upward speed to trigger jump
-const FLICK_MAX = 25;       // px/frame upward speed for max jump
+const DIR_THRESHOLD = 10;  // px horizontal drag to lock a direction
+const FLICK_THRESHOLD = 3; // px/frame upward speed to trigger jump (lowered)
+const FLICK_MAX = 18;      // px/frame upward speed for max jump (lowered)
+const VEL_SMOOTH = 0.4;
 
 touchArea.addEventListener('touchstart', e => {
   if (gameState !== 'playing' && gameState !== 'boss') return;
@@ -124,9 +123,10 @@ touchArea.addEventListener('touchstart', e => {
   const t = e.changedTouches[0];
   touchId = t.identifier;
   touchActive = true;
+  touchStart = { x: t.clientX, y: t.clientY };
   touchPrev = { x: t.clientX, y: t.clientY };
-  touchVelX = 0;
-  touchVelY = 0;
+  touchDir = 0;
+  touchRawVelY = 0;
   joyKnob.style.display = 'block';
   joyKnob.style.left = t.clientX + 'px';
   joyKnob.style.top = t.clientY + 'px';
@@ -140,16 +140,23 @@ touchArea.addEventListener('touchmove', e => {
     if (t.identifier !== touchId) continue;
     const cx = t.clientX, cy = t.clientY;
 
+    // Track vertical velocity for flick detection
     if (touchPrev) {
-      const rawVx = cx - touchPrev.x;
       const rawVy = cy - touchPrev.y;
-      // Exponential smoothing
-      touchVelX = touchVelX * (1 - VEL_SMOOTH) + rawVx * VEL_SMOOTH;
-      touchVelY = touchVelY * (1 - VEL_SMOOTH) + rawVy * VEL_SMOOTH;
+      touchRawVelY = touchRawVelY * (1 - VEL_SMOOTH) + rawVy * VEL_SMOOTH;
     }
-    touchPrev = { x: cx, y: cy };
 
-    // Move knob indicator to finger
+    // Lock direction based on cumulative drag from start point
+    const dx = cx - touchStart.x;
+    if (dx > DIR_THRESHOLD) {
+      touchDir = 1;
+    } else if (dx < -DIR_THRESHOLD) {
+      touchDir = -1;
+    }
+    // Direction changes if you drag past the start point the other way
+    // (crossing back past origin flips direction)
+
+    touchPrev = { x: cx, y: cy };
     joyKnob.style.left = cx + 'px';
     joyKnob.style.top = cy + 'px';
   }
@@ -160,10 +167,10 @@ function endTouch(e) {
     if (t.identifier !== touchId) continue;
     touchId = null;
     touchActive = false;
+    touchStart = null;
     touchPrev = null;
-    touchVelX = 0;
-    touchVelY = 0;
-    touchMoveX = 0;
+    touchDir = 0;
+    touchRawVelY = 0;
     keys.left = false;
     keys.right = false;
     joyKnob.style.display = 'none';
@@ -178,30 +185,20 @@ function processTouchInput() {
   if (flickCooldown > 0) flickCooldown--;
 
   if (!touchActive) {
-    touchMoveX = 0;
-    // Don't clear touchJumpPower here — it persists until consumed by jump
     return;
   }
 
-  // Horizontal: finger velocity → movement direction & speed
-  if (Math.abs(touchVelX) > MOVE_THRESHOLD) {
-    touchMoveX = Math.max(-1, Math.min(1, touchVelX / FULL_SPEED_VEL));
-  } else {
-    // Below threshold: keep last direction but decelerate
-    touchMoveX *= 0.85;
-    if (Math.abs(touchMoveX) < 0.05) touchMoveX = 0;
-  }
+  // Horizontal: once a direction is set, keep running until lift or reversal
+  keys.left = touchDir === -1;
+  keys.right = touchDir === 1;
 
-  keys.left = touchMoveX < -0.05;
-  keys.right = touchMoveX > 0.05;
-
-  // Vertical: upward flick speed → jump trigger
-  // touchVelY is negative when swiping up
-  if (-touchVelY > FLICK_THRESHOLD && flickCooldown <= 0) {
-    const upSpeed = -touchVelY;
+  // Vertical: upward flick speed → jump
+  // touchRawVelY is negative when swiping up
+  if (-touchRawVelY > FLICK_THRESHOLD && flickCooldown <= 0) {
+    const upSpeed = -touchRawVelY;
     touchJumpPower = Math.min(1, (upSpeed - FLICK_THRESHOLD) / (FLICK_MAX - FLICK_THRESHOLD));
     keys.jump = true;
-    flickCooldown = 12; // prevent repeated jumps from same gesture
+    flickCooldown = 10;
   } else if (flickCooldown <= 0) {
     keys.jump = false;
   }
@@ -892,30 +889,26 @@ function update() {
   // Process touch joystick into keys + analog values
   processTouchInput();
 
-  // Movement — analog speed from touch, full speed from keyboard
-  const MAX_SPEED = 3.4;
-  const MIN_SPEED = 0.8;
+  // Movement — full speed while direction is held
+  const RUN_SPEED = 3.2;
   if (keys.left) {
-    const analog = touchActive ? Math.abs(touchMoveX) : 1;
-    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * Math.min(1, analog);
-    player.vx = -speed;
+    player.vx = -RUN_SPEED;
     player.dir = -1;
   } else if (keys.right) {
-    const analog = touchActive ? Math.abs(touchMoveX) : 1;
-    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * Math.min(1, analog);
-    player.vx = speed;
+    player.vx = RUN_SPEED;
     player.dir = 1;
   } else {
     player.vx *= 0.75;
     if (Math.abs(player.vx) < 0.15) player.vx = 0;
   }
 
-  // Jump — analog height from flick speed (touch) or full from keyboard
-  const MIN_JUMP = -7;
-  const MAX_JUMP = -13;
+  // Jump — flick speed controls height (touch), keyboard always max
+  // Small flick = -9 (short hop), fast flick = -14 (big leap)
+  const SMALL_JUMP = -9;
+  const BIG_JUMP = -14;
   if (keys.jump && player.grounded && !player.jumpHeld) {
-    const analog = touchActive ? Math.max(0.3, touchJumpPower) : 1;
-    player.vy = MIN_JUMP + (MAX_JUMP - MIN_JUMP) * analog;
+    const power = touchActive ? Math.max(0.15, touchJumpPower) : 1;
+    player.vy = SMALL_JUMP + (BIG_JUMP - SMALL_JUMP) * power;
     player.grounded = false;
     player.jumpHeld = true;
     touchJumpPower = 0; // consume the flick
