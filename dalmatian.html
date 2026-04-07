@@ -12,10 +12,8 @@ canvas{display:block;image-rendering:pixelated;border-radius:8px}
 #ui>div{pointer-events:auto}
 .hud{font-size:clamp(0.8rem,3vw,1.1rem);color:#fff;text-shadow:0 2px 4px rgba(0,0,0,0.5);display:flex;gap:8px;align-items:center}
 #touch-controls{position:fixed;bottom:0;left:0;width:100%;height:55%;z-index:10;pointer-events:auto;-webkit-tap-highlight-color:transparent}
-#joystick-base{position:absolute;width:120px;height:120px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);display:none;transform:translate(-50%,-50%);pointer-events:none}
-#joystick-knob{position:absolute;width:50px;height:50px;border-radius:50%;border:2px solid rgba(255,255,255,0.45);background:rgba(255,255,255,0.15);display:none;transform:translate(-50%,-50%);pointer-events:none;backdrop-filter:blur(3px)}
+#joystick-knob{position:absolute;width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);background:rgba(255,255,255,0.12);display:none;transform:translate(-50%,-50%);pointer-events:none;backdrop-filter:blur(3px);box-shadow:0 0 15px rgba(255,255,255,0.1)}
 #joystick-hint{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-size:clamp(0.7rem,2.2vw,0.85rem);pointer-events:none;text-align:center;transition:opacity 0.5s}
-#joystick-arrow{position:absolute;width:80px;height:80px;bottom:50px;left:50%;transform:translateX(-50%);pointer-events:none;opacity:0.18}
 #screen-title,#screen-win,#screen-over{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(20,10,40,0.92);gap:12px;padding:24px;text-align:center}
 #screen-title h1{font-size:clamp(1.8rem,7vw,3rem);color:#ffe066;text-shadow:0 0 20px rgba(255,224,102,0.5)}
 #screen-title p,#screen-win p,#screen-over p{color:#c8b8ff;font-size:clamp(0.9rem,3vw,1.1rem);max-width:360px;line-height:1.5}
@@ -34,14 +32,8 @@ canvas{display:block;image-rendering:pixelated;border-radius:8px}
 </div>
 <canvas id="game"></canvas>
 <div id="touch-controls">
-  <div id="joystick-base"></div>
   <div id="joystick-knob"></div>
-  <div id="joystick-hint">Touch &amp; drag to move</div>
-  <svg id="joystick-arrow" viewBox="0 0 80 80" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2" stroke-linecap="round">
-    <line x1="20" y1="40" x2="8" y2="40"/><polyline points="14,34 8,40 14,46"/>
-    <line x1="60" y1="40" x2="72" y2="40"/><polyline points="66,34 72,40 66,46"/>
-    <line x1="40" y1="22" x2="40" y2="10"/><polyline points="34,16 40,10 46,16"/>
-  </svg>
+  <div id="joystick-hint">Drag to run · Flick up to jump</div>
 </div>
 <div id="screen-title">
   <div style="font-size:clamp(3rem,12vw,5rem)">🐾</div>
@@ -100,51 +92,30 @@ document.addEventListener('keyup', e => {
 });
 
 // ═══════════════════════════════════════════
-//  TOUCH — One-thumb virtual joystick
+//  TOUCH — Finger-follow with flick-to-jump
 // ═══════════════════════════════════════════
-// Touch anywhere on lower half, drag:
-//   Left/right = move (further = faster)
-//   Up = jump (further up = higher)
-const joyBase = document.getElementById('joystick-base');
+// Drag finger in any direction → Dotty follows.
+//   Speed = how fast your finger moves horizontally.
+// Flick upward → Dotty jumps.
+//   Jump height = upward flick speed.
 const joyKnob = document.getElementById('joystick-knob');
 const joyHint = document.getElementById('joystick-hint');
 const touchArea = document.getElementById('touch-controls');
 
-let touchOrigin = null;   // {x, y} where finger first touched
-let touchCurrent = null;  // {x, y} current finger position
-let touchId = null;       // active touch identifier
-const DEAD_ZONE = 12;     // px — ignore tiny movements
-const MAX_RADIUS = 70;    // px — max drag distance for full speed
-const JUMP_THRESHOLD = 25; // px upward drag to trigger jump
+let touchId = null;
+let touchActive = false;
+let touchPrev = null;      // previous frame's touch position
+let touchVelX = 0;         // smoothed horizontal finger velocity (px/frame)
+let touchVelY = 0;         // smoothed vertical finger velocity (px/frame)
+let touchMoveX = 0;        // -1 to 1 analog horizontal
+let touchJumpPower = 0;    // 0 to 1 — set on flick, consumed on jump
+let flickCooldown = 0;     // frames until next flick allowed
 
-// Analog values for smooth control (0 to 1)
-let touchMoveX = 0;   // -1 (full left) to 1 (full right)
-let touchJumpPower = 0; // 0 to 1
-
-function showJoystick(ox, oy) {
-  joyBase.style.display = 'block';
-  joyBase.style.left = ox + 'px';
-  joyBase.style.top = oy + 'px';
-  joyKnob.style.display = 'block';
-  joyKnob.style.left = ox + 'px';
-  joyKnob.style.top = oy + 'px';
-  joyHint.style.opacity = '0';
-}
-
-function moveJoystick(ox, oy, cx, cy) {
-  // Clamp knob to max radius
-  let dx = cx - ox, dy = cy - oy;
-  const dist = Math.hypot(dx, dy);
-  if (dist > MAX_RADIUS) { dx = dx / dist * MAX_RADIUS; dy = dy / dist * MAX_RADIUS; }
-  joyKnob.style.left = (ox + dx) + 'px';
-  joyKnob.style.top = (oy + dy) + 'px';
-}
-
-function hideJoystick() {
-  joyBase.style.display = 'none';
-  joyKnob.style.display = 'none';
-  joyHint.style.opacity = '1';
-}
+const VEL_SMOOTH = 0.35;   // smoothing factor (lower = smoother)
+const MOVE_THRESHOLD = 1.5; // px/frame finger speed to start moving
+const FULL_SPEED_VEL = 12;  // px/frame finger speed for max run speed
+const FLICK_THRESHOLD = 8;  // px/frame upward speed to trigger jump
+const FLICK_MAX = 25;       // px/frame upward speed for max jump
 
 touchArea.addEventListener('touchstart', e => {
   if (gameState !== 'playing' && gameState !== 'boss') return;
@@ -152,67 +123,86 @@ touchArea.addEventListener('touchstart', e => {
   e.stopPropagation();
   const t = e.changedTouches[0];
   touchId = t.identifier;
-  touchOrigin = { x: t.clientX, y: t.clientY };
-  touchCurrent = { x: t.clientX, y: t.clientY };
-  showJoystick(t.clientX, t.clientY);
+  touchActive = true;
+  touchPrev = { x: t.clientX, y: t.clientY };
+  touchVelX = 0;
+  touchVelY = 0;
+  joyKnob.style.display = 'block';
+  joyKnob.style.left = t.clientX + 'px';
+  joyKnob.style.top = t.clientY + 'px';
+  joyHint.style.opacity = '0';
 }, { passive: false });
 
 touchArea.addEventListener('touchmove', e => {
   e.preventDefault();
   e.stopPropagation();
   for (const t of e.changedTouches) {
-    if (t.identifier === touchId) {
-      touchCurrent = { x: t.clientX, y: t.clientY };
-      moveJoystick(touchOrigin.x, touchOrigin.y, t.clientX, t.clientY);
+    if (t.identifier !== touchId) continue;
+    const cx = t.clientX, cy = t.clientY;
+
+    if (touchPrev) {
+      const rawVx = cx - touchPrev.x;
+      const rawVy = cy - touchPrev.y;
+      // Exponential smoothing
+      touchVelX = touchVelX * (1 - VEL_SMOOTH) + rawVx * VEL_SMOOTH;
+      touchVelY = touchVelY * (1 - VEL_SMOOTH) + rawVy * VEL_SMOOTH;
     }
+    touchPrev = { x: cx, y: cy };
+
+    // Move knob indicator to finger
+    joyKnob.style.left = cx + 'px';
+    joyKnob.style.top = cy + 'px';
   }
 }, { passive: false });
 
 function endTouch(e) {
   for (const t of e.changedTouches) {
-    if (t.identifier === touchId) {
-      touchOrigin = null;
-      touchCurrent = null;
-      touchId = null;
-      touchMoveX = 0;
-      touchJumpPower = 0;
-      keys.left = false;
-      keys.right = false;
-      keys.jump = false;
-      hideJoystick();
-    }
+    if (t.identifier !== touchId) continue;
+    touchId = null;
+    touchActive = false;
+    touchPrev = null;
+    touchVelX = 0;
+    touchVelY = 0;
+    touchMoveX = 0;
+    keys.left = false;
+    keys.right = false;
+    joyKnob.style.display = 'none';
+    joyHint.style.opacity = '1';
   }
 }
 touchArea.addEventListener('touchend', endTouch);
 touchArea.addEventListener('touchcancel', endTouch);
 
-// Process touch input every frame — called from update()
+// Called every frame from update()
 function processTouchInput() {
-  if (!touchOrigin || !touchCurrent) {
+  if (flickCooldown > 0) flickCooldown--;
+
+  if (!touchActive) {
     touchMoveX = 0;
-    touchJumpPower = 0;
+    // Don't clear touchJumpPower here — it persists until consumed by jump
     return;
   }
 
-  const dx = touchCurrent.x - touchOrigin.x;
-  const dy = touchCurrent.y - touchOrigin.y; // negative = up
-
-  // Horizontal
-  if (Math.abs(dx) > DEAD_ZONE) {
-    touchMoveX = Math.max(-1, Math.min(1, (dx - Math.sign(dx) * DEAD_ZONE) / (MAX_RADIUS - DEAD_ZONE)));
+  // Horizontal: finger velocity → movement direction & speed
+  if (Math.abs(touchVelX) > MOVE_THRESHOLD) {
+    touchMoveX = Math.max(-1, Math.min(1, touchVelX / FULL_SPEED_VEL));
   } else {
-    touchMoveX = 0;
+    // Below threshold: keep last direction but decelerate
+    touchMoveX *= 0.85;
+    if (Math.abs(touchMoveX) < 0.05) touchMoveX = 0;
   }
 
-  keys.left = touchMoveX < -0.1;
-  keys.right = touchMoveX > 0.1;
+  keys.left = touchMoveX < -0.05;
+  keys.right = touchMoveX > 0.05;
 
-  // Vertical — upward drag triggers jump
-  if (dy < -JUMP_THRESHOLD) {
-    touchJumpPower = Math.min(1, (-dy - JUMP_THRESHOLD) / (MAX_RADIUS - JUMP_THRESHOLD));
+  // Vertical: upward flick speed → jump trigger
+  // touchVelY is negative when swiping up
+  if (-touchVelY > FLICK_THRESHOLD && flickCooldown <= 0) {
+    const upSpeed = -touchVelY;
+    touchJumpPower = Math.min(1, (upSpeed - FLICK_THRESHOLD) / (FLICK_MAX - FLICK_THRESHOLD));
     keys.jump = true;
-  } else {
-    touchJumpPower = 0;
+    flickCooldown = 12; // prevent repeated jumps from same gesture
+  } else if (flickCooldown <= 0) {
     keys.jump = false;
   }
 }
@@ -903,31 +893,32 @@ function update() {
   processTouchInput();
 
   // Movement — analog speed from touch, full speed from keyboard
-  const MAX_SPEED = 3.2;
-  const MIN_SPEED = 1.0;
+  const MAX_SPEED = 3.4;
+  const MIN_SPEED = 0.8;
   if (keys.left) {
-    const analog = touchOrigin ? Math.abs(touchMoveX) : 1;
-    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * analog;
+    const analog = touchActive ? Math.abs(touchMoveX) : 1;
+    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * Math.min(1, analog);
     player.vx = -speed;
     player.dir = -1;
   } else if (keys.right) {
-    const analog = touchOrigin ? Math.abs(touchMoveX) : 1;
-    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * analog;
+    const analog = touchActive ? Math.abs(touchMoveX) : 1;
+    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * Math.min(1, analog);
     player.vx = speed;
     player.dir = 1;
   } else {
-    player.vx *= 0.7;
-    if (Math.abs(player.vx) < 0.2) player.vx = 0;
+    player.vx *= 0.75;
+    if (Math.abs(player.vx) < 0.15) player.vx = 0;
   }
 
-  // Jump — analog height from touch, full height from keyboard
-  const MIN_JUMP = -8;
+  // Jump — analog height from flick speed (touch) or full from keyboard
+  const MIN_JUMP = -7;
   const MAX_JUMP = -13;
   if (keys.jump && player.grounded && !player.jumpHeld) {
-    const analog = touchOrigin ? touchJumpPower : 1;
+    const analog = touchActive ? Math.max(0.3, touchJumpPower) : 1;
     player.vy = MIN_JUMP + (MAX_JUMP - MIN_JUMP) * analog;
     player.grounded = false;
     player.jumpHeld = true;
+    touchJumpPower = 0; // consume the flick
   }
   if (!keys.jump) player.jumpHeld = false;
 
