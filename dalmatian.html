@@ -11,13 +11,11 @@ canvas{display:block;image-rendering:pixelated;border-radius:8px}
 #ui{position:fixed;top:0;left:0;width:100%;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;z-index:10;pointer-events:none}
 #ui>div{pointer-events:auto}
 .hud{font-size:clamp(0.8rem,3vw,1.1rem);color:#fff;text-shadow:0 2px 4px rgba(0,0,0,0.5);display:flex;gap:8px;align-items:center}
-#touch-controls{position:fixed;bottom:0;left:0;width:100%;height:50%;z-index:10;pointer-events:none;display:flex}
-.touch-zone{pointer-events:auto;flex:1;position:relative;-webkit-tap-highlight-color:transparent}
-.touch-zone-jump{flex:1.2}
-.touch-indicator{position:absolute;bottom:16px;width:100%;display:flex;justify-content:center;align-items:center;pointer-events:none;opacity:0.35;transition:opacity 0.15s}
-.touch-zone:active .touch-indicator,.touch-zone.pressed .touch-indicator{opacity:0.7}
-.touch-icon{width:clamp(48px,13vw,68px);height:clamp(48px,13vw,68px);border-radius:50%;border:2.5px solid rgba(255,255,255,0.5);background:rgba(255,255,255,0.1);color:#fff;font-size:clamp(1rem,3.5vw,1.5rem);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
-.touch-zone-jump .touch-icon{width:clamp(60px,16vw,84px);height:clamp(60px,16vw,84px);font-size:clamp(1.2rem,4vw,1.8rem);border-color:rgba(255,224,102,0.5);background:rgba(255,224,102,0.1)}
+#touch-controls{position:fixed;bottom:0;left:0;width:100%;height:55%;z-index:10;pointer-events:auto;-webkit-tap-highlight-color:transparent}
+#joystick-base{position:absolute;width:120px;height:120px;border-radius:50%;border:2px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);display:none;transform:translate(-50%,-50%);pointer-events:none}
+#joystick-knob{position:absolute;width:50px;height:50px;border-radius:50%;border:2px solid rgba(255,255,255,0.45);background:rgba(255,255,255,0.15);display:none;transform:translate(-50%,-50%);pointer-events:none;backdrop-filter:blur(3px)}
+#joystick-hint{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.3);font-size:clamp(0.7rem,2.2vw,0.85rem);pointer-events:none;text-align:center;transition:opacity 0.5s}
+#joystick-arrow{position:absolute;width:80px;height:80px;bottom:50px;left:50%;transform:translateX(-50%);pointer-events:none;opacity:0.18}
 #screen-title,#screen-win,#screen-over{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(20,10,40,0.92);gap:12px;padding:24px;text-align:center}
 #screen-title h1{font-size:clamp(1.8rem,7vw,3rem);color:#ffe066;text-shadow:0 0 20px rgba(255,224,102,0.5)}
 #screen-title p,#screen-win p,#screen-over p{color:#c8b8ff;font-size:clamp(0.9rem,3vw,1.1rem);max-width:360px;line-height:1.5}
@@ -36,15 +34,14 @@ canvas{display:block;image-rendering:pixelated;border-radius:8px}
 </div>
 <canvas id="game"></canvas>
 <div id="touch-controls">
-  <div class="touch-zone" id="zone-left">
-    <div class="touch-indicator"><div class="touch-icon">◀</div></div>
-  </div>
-  <div class="touch-zone" id="zone-right">
-    <div class="touch-indicator"><div class="touch-icon">▶</div></div>
-  </div>
-  <div class="touch-zone touch-zone-jump" id="zone-jump">
-    <div class="touch-indicator"><div class="touch-icon">▲</div></div>
-  </div>
+  <div id="joystick-base"></div>
+  <div id="joystick-knob"></div>
+  <div id="joystick-hint">Touch &amp; drag to move</div>
+  <svg id="joystick-arrow" viewBox="0 0 80 80" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="2" stroke-linecap="round">
+    <line x1="20" y1="40" x2="8" y2="40"/><polyline points="14,34 8,40 14,46"/>
+    <line x1="60" y1="40" x2="72" y2="40"/><polyline points="66,34 72,40 66,46"/>
+    <line x1="40" y1="22" x2="40" y2="10"/><polyline points="34,16 40,10 46,16"/>
+  </svg>
 </div>
 <div id="screen-title">
   <div style="font-size:clamp(3rem,12vw,5rem)">🐾</div>
@@ -102,79 +99,123 @@ document.addEventListener('keyup', e => {
   if (e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') keys.jump = false;
 });
 
-// Touch — zone-based multi-touch (supports pressing left + jump simultaneously)
-const touchZones = [
-  { el: document.getElementById('zone-left'), key: 'left' },
-  { el: document.getElementById('zone-right'), key: 'right' },
-  { el: document.getElementById('zone-jump'), key: 'jump' },
-];
-const activeTouches = {}; // touchId -> key
+// ═══════════════════════════════════════════
+//  TOUCH — One-thumb virtual joystick
+// ═══════════════════════════════════════════
+// Touch anywhere on lower half, drag:
+//   Left/right = move (further = faster)
+//   Up = jump (further up = higher)
+const joyBase = document.getElementById('joystick-base');
+const joyKnob = document.getElementById('joystick-knob');
+const joyHint = document.getElementById('joystick-hint');
+const touchArea = document.getElementById('touch-controls');
 
-function updateTouchZones() {
-  // Reset pressed visual state
-  touchZones.forEach(z => z.el.classList.remove('pressed'));
-  // Set pressed for active touches
-  for (const key of Object.values(activeTouches)) {
-    const zone = touchZones.find(z => z.key === key);
-    if (zone) zone.el.classList.add('pressed');
-  }
+let touchOrigin = null;   // {x, y} where finger first touched
+let touchCurrent = null;  // {x, y} current finger position
+let touchId = null;       // active touch identifier
+const DEAD_ZONE = 12;     // px — ignore tiny movements
+const MAX_RADIUS = 70;    // px — max drag distance for full speed
+const JUMP_THRESHOLD = 25; // px upward drag to trigger jump
+
+// Analog values for smooth control (0 to 1)
+let touchMoveX = 0;   // -1 (full left) to 1 (full right)
+let touchJumpPower = 0; // 0 to 1
+
+function showJoystick(ox, oy) {
+  joyBase.style.display = 'block';
+  joyBase.style.left = ox + 'px';
+  joyBase.style.top = oy + 'px';
+  joyKnob.style.display = 'block';
+  joyKnob.style.left = ox + 'px';
+  joyKnob.style.top = oy + 'px';
+  joyHint.style.opacity = '0';
 }
 
-function getTouchZone(touch) {
-  const el = document.elementFromPoint(touch.clientX, touch.clientY);
-  if (!el) return null;
-  for (const z of touchZones) {
-    if (z.el === el || z.el.contains(el)) return z.key;
-  }
-  return null;
+function moveJoystick(ox, oy, cx, cy) {
+  // Clamp knob to max radius
+  let dx = cx - ox, dy = cy - oy;
+  const dist = Math.hypot(dx, dy);
+  if (dist > MAX_RADIUS) { dx = dx / dist * MAX_RADIUS; dy = dy / dist * MAX_RADIUS; }
+  joyKnob.style.left = (ox + dx) + 'px';
+  joyKnob.style.top = (oy + dy) + 'px';
 }
 
-document.addEventListener('touchstart', e => {
+function hideJoystick() {
+  joyBase.style.display = 'none';
+  joyKnob.style.display = 'none';
+  joyHint.style.opacity = '1';
+}
+
+touchArea.addEventListener('touchstart', e => {
   if (gameState !== 'playing' && gameState !== 'boss') return;
   e.preventDefault();
-  for (const touch of e.changedTouches) {
-    const zone = getTouchZone(touch);
-    if (zone) {
-      activeTouches[touch.identifier] = zone;
-      keys[zone] = true;
-    }
-  }
-  updateTouchZones();
+  e.stopPropagation();
+  const t = e.changedTouches[0];
+  touchId = t.identifier;
+  touchOrigin = { x: t.clientX, y: t.clientY };
+  touchCurrent = { x: t.clientX, y: t.clientY };
+  showJoystick(t.clientX, t.clientY);
 }, { passive: false });
 
-document.addEventListener('touchmove', e => {
+touchArea.addEventListener('touchmove', e => {
   e.preventDefault();
-  // Allow finger to slide between left/right zones
-  for (const touch of e.changedTouches) {
-    const oldZone = activeTouches[touch.identifier];
-    const newZone = getTouchZone(touch);
-    if (oldZone && newZone && oldZone !== newZone) {
-      // Only allow sliding between left/right, not into jump
-      if ((oldZone === 'left' || oldZone === 'right') && (newZone === 'left' || newZone === 'right')) {
-        keys[oldZone] = false;
-        activeTouches[touch.identifier] = newZone;
-        keys[newZone] = true;
-      }
+  e.stopPropagation();
+  for (const t of e.changedTouches) {
+    if (t.identifier === touchId) {
+      touchCurrent = { x: t.clientX, y: t.clientY };
+      moveJoystick(touchOrigin.x, touchOrigin.y, t.clientX, t.clientY);
     }
   }
-  updateTouchZones();
 }, { passive: false });
 
-function handleTouchEnd(e) {
-  for (const touch of e.changedTouches) {
-    const zone = activeTouches[touch.identifier];
-    if (zone) {
-      delete activeTouches[touch.identifier];
-      // Only release key if no other touch is holding the same zone
-      if (!Object.values(activeTouches).includes(zone)) {
-        keys[zone] = false;
-      }
+function endTouch(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier === touchId) {
+      touchOrigin = null;
+      touchCurrent = null;
+      touchId = null;
+      touchMoveX = 0;
+      touchJumpPower = 0;
+      keys.left = false;
+      keys.right = false;
+      keys.jump = false;
+      hideJoystick();
     }
   }
-  updateTouchZones();
 }
-document.addEventListener('touchend', handleTouchEnd);
-document.addEventListener('touchcancel', handleTouchEnd);
+touchArea.addEventListener('touchend', endTouch);
+touchArea.addEventListener('touchcancel', endTouch);
+
+// Process touch input every frame — called from update()
+function processTouchInput() {
+  if (!touchOrigin || !touchCurrent) {
+    touchMoveX = 0;
+    touchJumpPower = 0;
+    return;
+  }
+
+  const dx = touchCurrent.x - touchOrigin.x;
+  const dy = touchCurrent.y - touchOrigin.y; // negative = up
+
+  // Horizontal
+  if (Math.abs(dx) > DEAD_ZONE) {
+    touchMoveX = Math.max(-1, Math.min(1, (dx - Math.sign(dx) * DEAD_ZONE) / (MAX_RADIUS - DEAD_ZONE)));
+  } else {
+    touchMoveX = 0;
+  }
+
+  keys.left = touchMoveX < -0.1;
+  keys.right = touchMoveX > 0.1;
+
+  // Vertical — upward drag triggers jump
+  if (dy < -JUMP_THRESHOLD) {
+    touchJumpPower = Math.min(1, (-dy - JUMP_THRESHOLD) / (MAX_RADIUS - JUMP_THRESHOLD));
+    keys.jump = true;
+  } else {
+    touchJumpPower = 0;
+    keys.jump = false;
+  }
+}
 
 // ═══════════════════════════════════════════
 //  DRAWING HELPERS
@@ -858,15 +899,33 @@ function update() {
   frameCt++;
   player.frame = frameCt;
 
-  // Movement
-  const speed = 2.8;
-  if (keys.left) { player.vx = -speed; player.dir = -1; }
-  else if (keys.right) { player.vx = speed; player.dir = 1; }
-  else { player.vx *= 0.7; if (Math.abs(player.vx) < 0.2) player.vx = 0; }
+  // Process touch joystick into keys + analog values
+  processTouchInput();
 
-  // Jump
+  // Movement — analog speed from touch, full speed from keyboard
+  const MAX_SPEED = 3.2;
+  const MIN_SPEED = 1.0;
+  if (keys.left) {
+    const analog = touchOrigin ? Math.abs(touchMoveX) : 1;
+    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * analog;
+    player.vx = -speed;
+    player.dir = -1;
+  } else if (keys.right) {
+    const analog = touchOrigin ? Math.abs(touchMoveX) : 1;
+    const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * analog;
+    player.vx = speed;
+    player.dir = 1;
+  } else {
+    player.vx *= 0.7;
+    if (Math.abs(player.vx) < 0.2) player.vx = 0;
+  }
+
+  // Jump — analog height from touch, full height from keyboard
+  const MIN_JUMP = -8;
+  const MAX_JUMP = -13;
   if (keys.jump && player.grounded && !player.jumpHeld) {
-    player.vy = -12;
+    const analog = touchOrigin ? touchJumpPower : 1;
+    player.vy = MIN_JUMP + (MAX_JUMP - MIN_JUMP) * analog;
     player.grounded = false;
     player.jumpHeld = true;
   }
