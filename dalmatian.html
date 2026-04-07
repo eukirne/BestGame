@@ -104,17 +104,17 @@ const touchArea = document.getElementById('touch-controls');
 
 let touchId = null;
 let touchActive = false;
-let touchStart = null;     // where finger first touched
 let touchPrev = null;      // previous touch position
-let touchDir = 0;          // locked-in direction: -1 left, 0 none, 1 right
-let touchRawVelY = 0;      // raw vertical velocity for flick detection
+let touchDir = 0;          // current direction: -1 left, 0 none, 1 right
+let touchRawVelX = 0;      // smoothed horizontal velocity
+let touchRawVelY = 0;      // smoothed vertical velocity for flick detection
 let touchJumpPower = 0;    // 0 to 1 — set on flick, consumed on jump
 let flickCooldown = 0;
 
-const DIR_THRESHOLD = 10;  // px horizontal drag to lock a direction
-const FLICK_THRESHOLD = 3; // px/frame upward speed to trigger jump (lowered)
-const FLICK_MAX = 18;      // px/frame upward speed for max jump (lowered)
-const VEL_SMOOTH = 0.4;
+const DIR_THRESHOLD = 1.5; // px/frame horizontal velocity to set direction
+const FLICK_THRESHOLD = 3; // px/frame upward speed to trigger jump
+const FLICK_MAX = 18;      // px/frame upward speed for max jump
+const VEL_SMOOTH = 0.45;
 
 touchArea.addEventListener('touchstart', e => {
   if (gameState !== 'playing' && gameState !== 'boss') return;
@@ -123,9 +123,9 @@ touchArea.addEventListener('touchstart', e => {
   const t = e.changedTouches[0];
   touchId = t.identifier;
   touchActive = true;
-  touchStart = { x: t.clientX, y: t.clientY };
   touchPrev = { x: t.clientX, y: t.clientY };
   touchDir = 0;
+  touchRawVelX = 0;
   touchRawVelY = 0;
   joyKnob.style.display = 'block';
   joyKnob.style.left = t.clientX + 'px';
@@ -140,21 +140,21 @@ touchArea.addEventListener('touchmove', e => {
     if (t.identifier !== touchId) continue;
     const cx = t.clientX, cy = t.clientY;
 
-    // Track vertical velocity for flick detection
+    // Track finger velocity
     if (touchPrev) {
+      const rawVx = cx - touchPrev.x;
       const rawVy = cy - touchPrev.y;
+      touchRawVelX = touchRawVelX * (1 - VEL_SMOOTH) + rawVx * VEL_SMOOTH;
       touchRawVelY = touchRawVelY * (1 - VEL_SMOOTH) + rawVy * VEL_SMOOTH;
     }
 
-    // Lock direction based on cumulative drag from start point
-    const dx = cx - touchStart.x;
-    if (dx > DIR_THRESHOLD) {
+    // Direction follows finger movement instantly
+    if (touchRawVelX > DIR_THRESHOLD) {
       touchDir = 1;
-    } else if (dx < -DIR_THRESHOLD) {
+    } else if (touchRawVelX < -DIR_THRESHOLD) {
       touchDir = -1;
     }
-    // Direction changes if you drag past the start point the other way
-    // (crossing back past origin flips direction)
+    // When finger is nearly still horizontally, keep last direction
 
     touchPrev = { x: cx, y: cy };
     joyKnob.style.left = cx + 'px';
@@ -167,9 +167,9 @@ function endTouch(e) {
     if (t.identifier !== touchId) continue;
     touchId = null;
     touchActive = false;
-    touchStart = null;
     touchPrev = null;
     touchDir = 0;
+    touchRawVelX = 0;
     touchRawVelY = 0;
     keys.left = false;
     keys.right = false;
