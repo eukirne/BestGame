@@ -11,11 +11,13 @@ canvas{display:block;image-rendering:pixelated;border-radius:8px}
 #ui{position:fixed;top:0;left:0;width:100%;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;z-index:10;pointer-events:none}
 #ui>div{pointer-events:auto}
 .hud{font-size:clamp(0.8rem,3vw,1.1rem);color:#fff;text-shadow:0 2px 4px rgba(0,0,0,0.5);display:flex;gap:8px;align-items:center}
-#touch-controls{position:fixed;bottom:0;left:0;width:100%;padding:10px 16px;display:flex;justify-content:space-between;align-items:flex-end;z-index:10;pointer-events:none}
-.touch-btn{pointer-events:auto;width:clamp(52px,14vw,72px);height:clamp(52px,14vw,72px);border-radius:50%;border:3px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.12);color:#fff;font-size:clamp(1.2rem,4vw,1.8rem);display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px)}
-.touch-btn:active{background:rgba(255,255,255,0.25)}
-.dpad{display:flex;gap:8px;align-items:center}
-.jump-area{display:flex;gap:8px}
+#touch-controls{position:fixed;bottom:0;left:0;width:100%;height:50%;z-index:10;pointer-events:none;display:flex}
+.touch-zone{pointer-events:auto;flex:1;position:relative;-webkit-tap-highlight-color:transparent}
+.touch-zone-jump{flex:1.2}
+.touch-indicator{position:absolute;bottom:16px;width:100%;display:flex;justify-content:center;align-items:center;pointer-events:none;opacity:0.35;transition:opacity 0.15s}
+.touch-zone:active .touch-indicator,.touch-zone.pressed .touch-indicator{opacity:0.7}
+.touch-icon{width:clamp(48px,13vw,68px);height:clamp(48px,13vw,68px);border-radius:50%;border:2.5px solid rgba(255,255,255,0.5);background:rgba(255,255,255,0.1);color:#fff;font-size:clamp(1rem,3.5vw,1.5rem);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.touch-zone-jump .touch-icon{width:clamp(60px,16vw,84px);height:clamp(60px,16vw,84px);font-size:clamp(1.2rem,4vw,1.8rem);border-color:rgba(255,224,102,0.5);background:rgba(255,224,102,0.1)}
 #screen-title,#screen-win,#screen-over{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(20,10,40,0.92);gap:12px;padding:24px;text-align:center}
 #screen-title h1{font-size:clamp(1.8rem,7vw,3rem);color:#ffe066;text-shadow:0 0 20px rgba(255,224,102,0.5)}
 #screen-title p,#screen-win p,#screen-over p{color:#c8b8ff;font-size:clamp(0.9rem,3vw,1.1rem);max-width:360px;line-height:1.5}
@@ -34,12 +36,14 @@ canvas{display:block;image-rendering:pixelated;border-radius:8px}
 </div>
 <canvas id="game"></canvas>
 <div id="touch-controls">
-  <div class="dpad">
-    <div class="touch-btn" id="btn-left">◀</div>
-    <div class="touch-btn" id="btn-right">▶</div>
+  <div class="touch-zone" id="zone-left">
+    <div class="touch-indicator"><div class="touch-icon">◀</div></div>
   </div>
-  <div class="jump-area">
-    <div class="touch-btn" id="btn-jump">▲</div>
+  <div class="touch-zone" id="zone-right">
+    <div class="touch-indicator"><div class="touch-icon">▶</div></div>
+  </div>
+  <div class="touch-zone touch-zone-jump" id="zone-jump">
+    <div class="touch-indicator"><div class="touch-icon">▲</div></div>
   </div>
 </div>
 <div id="screen-title">
@@ -98,14 +102,79 @@ document.addEventListener('keyup', e => {
   if (e.code === 'ArrowUp' || e.code === 'Space' || e.code === 'KeyW') keys.jump = false;
 });
 
-// Touch
-function tb(id, key) {
-  const el = document.getElementById(id);
-  el.addEventListener('touchstart', e => { e.preventDefault(); keys[key] = true; });
-  el.addEventListener('touchend', e => { e.preventDefault(); keys[key] = false; });
-  el.addEventListener('touchcancel', e => { keys[key] = false; });
+// Touch — zone-based multi-touch (supports pressing left + jump simultaneously)
+const touchZones = [
+  { el: document.getElementById('zone-left'), key: 'left' },
+  { el: document.getElementById('zone-right'), key: 'right' },
+  { el: document.getElementById('zone-jump'), key: 'jump' },
+];
+const activeTouches = {}; // touchId -> key
+
+function updateTouchZones() {
+  // Reset pressed visual state
+  touchZones.forEach(z => z.el.classList.remove('pressed'));
+  // Set pressed for active touches
+  for (const key of Object.values(activeTouches)) {
+    const zone = touchZones.find(z => z.key === key);
+    if (zone) zone.el.classList.add('pressed');
+  }
 }
-tb('btn-left','left'); tb('btn-right','right'); tb('btn-jump','jump');
+
+function getTouchZone(touch) {
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  if (!el) return null;
+  for (const z of touchZones) {
+    if (z.el === el || z.el.contains(el)) return z.key;
+  }
+  return null;
+}
+
+document.addEventListener('touchstart', e => {
+  if (gameState !== 'playing' && gameState !== 'boss') return;
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    const zone = getTouchZone(touch);
+    if (zone) {
+      activeTouches[touch.identifier] = zone;
+      keys[zone] = true;
+    }
+  }
+  updateTouchZones();
+}, { passive: false });
+
+document.addEventListener('touchmove', e => {
+  e.preventDefault();
+  // Allow finger to slide between left/right zones
+  for (const touch of e.changedTouches) {
+    const oldZone = activeTouches[touch.identifier];
+    const newZone = getTouchZone(touch);
+    if (oldZone && newZone && oldZone !== newZone) {
+      // Only allow sliding between left/right, not into jump
+      if ((oldZone === 'left' || oldZone === 'right') && (newZone === 'left' || newZone === 'right')) {
+        keys[oldZone] = false;
+        activeTouches[touch.identifier] = newZone;
+        keys[newZone] = true;
+      }
+    }
+  }
+  updateTouchZones();
+}, { passive: false });
+
+function handleTouchEnd(e) {
+  for (const touch of e.changedTouches) {
+    const zone = activeTouches[touch.identifier];
+    if (zone) {
+      delete activeTouches[touch.identifier];
+      // Only release key if no other touch is holding the same zone
+      if (!Object.values(activeTouches).includes(zone)) {
+        keys[zone] = false;
+      }
+    }
+  }
+  updateTouchZones();
+}
+document.addEventListener('touchend', handleTouchEnd);
+document.addEventListener('touchcancel', handleTouchEnd);
 
 // ═══════════════════════════════════════════
 //  DRAWING HELPERS
