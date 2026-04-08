@@ -368,16 +368,32 @@ function step() {
   return true;
 }
 
-let prevGridStr = '';
+// Track all seen states to detect any cycle (still lifes, oscillators, etc.)
+let stateHistory = new Set();
+let loopDetected = false;
+
+function gridHash() {
+  // Fast string hash of grid state
+  let h = 0;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (grid[r][c]) h = (h * 31 + r * COLS + c) | 0;
+    }
+  }
+  // Also keep the full string for collision safety on small grids
+  return h + '|' + grid.map(r => r.join('')).join('');
+}
+
 function stepAndCheck() {
-  const gridStr = grid.map(r => r.join('')).join('');
-  if (gridStr === prevGridStr) {
-    // Static — still life reached
+  const hash = gridHash();
+  if (stateHistory.has(hash)) {
+    // Cycle detected — could be still life, blinker, or any oscillator
+    loopDetected = true;
     stopSim();
     showResult();
     return;
   }
-  prevGridStr = gridStr;
+  stateHistory.add(hash);
 
   if (!step()) return;
 }
@@ -386,7 +402,10 @@ function startSim() {
   if (seedsPlaced === 0) return;
   mode = 'sim';
   simRunning = true;
-  prevGridStr = '';
+  stateHistory = new Set();
+  loopDetected = false;
+  // Add initial state
+  stateHistory.add(gridHash());
   updateButtons();
   simTimer = setInterval(stepAndCheck, 120);
 }
@@ -403,16 +422,41 @@ function showResult() {
   const isRecord = generation > prev;
   if (isRecord) bestGens[stageIdx] = generation;
 
-  document.getElementById('result-title').textContent =
-    passed ? 'Survived!' : 'Simulation Over';
+  // Determine end reason
+  let alive = 0;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) alive += grid[r][c];
+  const reason = alive === 0 ? 'extinct' : loopDetected ? 'loop' : 'stopped';
+
+  let title, label, msg;
+  if (reason === 'extinct') {
+    title = passed ? 'Survived!' : 'Extinction';
+    label = 'generations before dying out';
+  } else if (reason === 'loop') {
+    title = passed ? 'Survived!' : 'Endless Loop';
+    label = 'generations before entering a cycle';
+  } else {
+    title = 'Stopped';
+    label = 'generations when stopped';
+  }
+
+  if (passed) {
+    msg = generation >= stage.goal * 2
+      ? 'Incredible! Way beyond the goal!'
+      : `Goal of ${stage.goal} reached!`;
+  } else {
+    msg = reason === 'loop'
+      ? `Pattern entered a repeating cycle at gen ${generation}. Goal: ${stage.goal}. Try different seeds.`
+      : reason === 'extinct'
+        ? `All cells died at gen ${generation}. Goal: ${stage.goal}. Try a different pattern.`
+        : `Goal was ${stage.goal} generations.`;
+  }
+
+  document.getElementById('result-title').textContent = title;
   document.getElementById('result-gens').textContent = generation;
-  document.getElementById('result-label').textContent = 'generations survived';
+  document.getElementById('result-label').textContent = label;
   document.getElementById('result-record').textContent =
     isRecord ? 'New personal best!' : (prev > 0 ? `Personal best: ${prev}` : '');
-  document.getElementById('result-msg').textContent =
-    passed
-      ? (generation >= stage.goal * 2 ? 'Incredible! Way beyond the goal!' : `Goal of ${stage.goal} reached!`)
-      : `Goal was ${stage.goal} generations. Try a different seed pattern.`;
+  document.getElementById('result-msg').textContent = msg;
 
   document.getElementById('btn-advance').style.display = passed ? '' : 'none';
   document.getElementById('result-screen').classList.add('show');
