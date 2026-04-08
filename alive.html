@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Staying Alive</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#000;color:#c8c8c8;font-family:'Courier New',monospace;display:flex;flex-direction:column;align-items:center;min-height:100dvh;overflow-x:hidden;-webkit-tap-highlight-color:transparent;user-select:none}
+header{width:100%;padding:0.6rem 1rem 0.3rem;text-align:center}
+h1{font-size:clamp(1.2rem,4vw,1.6rem);font-weight:400;letter-spacing:0.2em;text-transform:uppercase;color:#0f0}
+.sub{display:flex;justify-content:center;gap:1.5rem;flex-wrap:wrap;margin-top:0.2rem;font-size:clamp(0.65rem,2vw,0.78rem);color:#666}
+.sub .val{color:#0f0}
+
+#game-area{flex:1;display:flex;flex-direction:column;align-items:center;padding:0.3rem;gap:0.5rem;width:100%}
+
+/* Rules panel */
+#rules{max-width:500px;width:90%;padding:0.5rem 0.8rem;border:1px solid #1a1a1a;border-radius:6px;background:#0a0a0a;font-size:clamp(0.68rem,2.1vw,0.8rem);line-height:1.6;color:#888}
+#rules .rule-title{color:#0f0;margin-bottom:0.2rem;font-size:clamp(0.72rem,2.3vw,0.85rem)}
+#rules .highlight{color:#0f0}
+
+/* Grid */
+canvas{border:1px solid #1a1a1a;cursor:crosshair;border-radius:2px;image-rendering:pixelated}
+
+/* Seed counter */
+#seed-bar{font-size:clamp(0.75rem,2.5vw,0.9rem);color:#555;display:flex;gap:1rem;align-items:center}
+#seed-bar .seeds-left{color:#0f0}
+#seed-bar .seeds-left.depleted{color:#f33}
+
+/* Controls */
+#controls{display:flex;gap:0.5rem;padding:0.4rem;flex-wrap:wrap;justify-content:center}
+button{font-family:inherit;font-size:clamp(0.7rem,2.2vw,0.8rem);padding:0.4rem 1rem;border:1px solid #2a2a2a;border-radius:4px;background:#111;color:#aaa;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;transition:border-color 0.2s,color 0.2s}
+button:hover{border-color:#0f0;color:#0f0}
+button:disabled{opacity:0.3;cursor:default;border-color:#1a1a1a;color:#444}
+button.go{border-color:#0a0;color:#0f0}
+
+/* Stats bar during simulation */
+#stats{font-size:clamp(0.68rem,2.1vw,0.8rem);color:#555;display:flex;gap:1.2rem;flex-wrap:wrap;justify-content:center}
+#stats .val{color:#0f0}
+
+/* Overlays */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:100;flex-direction:column;align-items:center;justify-content:center;gap:0.8rem;padding:1.5rem;text-align:center}
+.overlay.show{display:flex}
+.overlay h2{font-size:clamp(1.2rem,5vw,1.8rem);font-weight:400;color:#0f0;letter-spacing:0.15em}
+.overlay p{color:#777;max-width:380px;line-height:1.6;font-size:clamp(0.75rem,2.5vw,0.9rem)}
+.overlay .big{font-size:clamp(1.5rem,6vw,2.5rem);color:#0f0;font-weight:bold;letter-spacing:0.1em}
+.overlay .record{color:#0a0;font-size:clamp(0.8rem,2.8vw,0.95rem)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Staying Alive</h1>
+  <div class="sub">
+    <span>Stage <span class="val" id="stage-num">1</span></span>
+    <span>Goal: <span class="val" id="goal-text">---</span></span>
+    <span>Best: <span class="val" id="best-text">---</span></span>
+  </div>
+</header>
+
+<div id="game-area">
+  <div id="rules"></div>
+  <canvas id="grid"></canvas>
+  <div id="seed-bar">
+    Seeds: <span class="seeds-left" id="seeds-left">0</span> / <span id="seeds-max">0</span>
+  </div>
+  <div id="stats">
+    <span>Gen: <span class="val" id="stat-gen">0</span></span>
+    <span>Alive: <span class="val" id="stat-alive">0</span></span>
+    <span>Peak: <span class="val" id="stat-peak">0</span></span>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="btn-clear">Clear</button>
+  <button id="btn-step">Step</button>
+  <button id="btn-go" class="go">Run</button>
+  <button id="btn-stop" disabled>Stop</button>
+  <button id="btn-next" disabled>Next Stage</button>
+</div>
+
+<div class="overlay" id="intro-screen">
+  <h2>Staying Alive</h2>
+  <p>Place seeds on the grid to create life. The cells follow the rules of each stage. Your goal: keep the simulation alive as long as possible.</p>
+  <p style="color:#555;font-size:0.75rem;">Tap cells to place seeds. Then hit Run.</p>
+  <button class="go" id="btn-start" style="margin-top:0.5rem">Begin</button>
+</div>
+
+<div class="overlay" id="result-screen">
+  <h2 id="result-title">Simulation Over</h2>
+  <div class="big" id="result-gens">0</div>
+  <p id="result-label">generations survived</p>
+  <div class="record" id="result-record"></div>
+  <p id="result-msg"></p>
+  <div style="display:flex;gap:0.5rem;margin-top:0.3rem">
+    <button id="btn-retry">Retry</button>
+    <button class="go" id="btn-advance">Next Stage</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+//  CANVAS
+// ═══════════════════════════════════════
+const cvs = document.getElementById('grid');
+const ctx = cvs.getContext('2d');
+let COLS, ROWS, CELL;
+
+function sizeGrid(cols, rows) {
+  COLS = cols; ROWS = rows;
+  const maxW = Math.min(window.innerWidth - 16, 560);
+  const maxH = Math.min(window.innerHeight * 0.45, 400);
+  CELL = Math.max(6, Math.min(Math.floor(maxW / cols), Math.floor(maxH / rows), 24));
+  cvs.width = cols * CELL;
+  cvs.height = rows * CELL;
+  cvs.style.width = cvs.width + 'px';
+  cvs.style.height = cvs.height + 'px';
+}
+
+// ═══════════════════════════════════════
+//  STAGES
+// ═══════════════════════════════════════
+const STAGES = [
+  {
+    name: 'Classic',
+    cols: 20, rows: 20, maxSeeds: 12, goal: 30,
+    rules: [
+      'Standard Conway rules:',
+      'A live cell with <span class="highlight">2 or 3</span> neighbors survives.',
+      'A dead cell with exactly <span class="highlight">3</span> neighbors is born.',
+      'All other cells die or stay dead.',
+    ],
+    born: [3], survive: [2, 3],
+  },
+  {
+    name: 'Scarcity',
+    cols: 20, rows: 20, maxSeeds: 8, goal: 25,
+    rules: [
+      'Same Conway rules, but only <span class="highlight">8 seeds</span>.',
+      'Choose carefully — every cell counts.',
+    ],
+    born: [3], survive: [2, 3],
+  },
+  {
+    name: 'Highlife',
+    cols: 25, rows: 25, maxSeeds: 10, goal: 40,
+    rules: [
+      'Highlife variant:',
+      'A live cell with <span class="highlight">2 or 3</span> neighbors survives.',
+      'A dead cell with <span class="highlight">3 or 6</span> neighbors is born.',
+      'Replicators can appear — find one!',
+    ],
+    born: [3, 6], survive: [2, 3],
+  },
+  {
+    name: 'Day & Night',
+    cols: 25, rows: 25, maxSeeds: 15, goal: 50,
+    rules: [
+      'Day & Night rules:',
+      'Survive: <span class="highlight">3, 4, 6, 7, 8</span> neighbors.',
+      'Born: <span class="highlight">3, 6, 7, 8</span> neighbors.',
+      'Dead and alive are symmetric — patterns are wild.',
+    ],
+    born: [3, 6, 7, 8], survive: [3, 4, 6, 7, 8],
+  },
+  {
+    name: 'Seeds Only',
+    cols: 20, rows: 20, maxSeeds: 6, goal: 20,
+    rules: [
+      '"Seeds" automaton:',
+      'No cell survives — all live cells die every turn.',
+      'A dead cell with exactly <span class="highlight">2</span> neighbors is born.',
+      'Everything flickers — can you keep it going?',
+    ],
+    born: [2], survive: [],
+  },
+  {
+    name: 'Maze Builder',
+    cols: 30, rows: 30, maxSeeds: 10, goal: 60,
+    rules: [
+      'Maze rules (B3/S12345):',
+      'Born with <span class="highlight">3</span> neighbors.',
+      'Survive with <span class="highlight">1, 2, 3, 4, or 5</span> neighbors.',
+      'Cells tend to persist — grow a living maze.',
+    ],
+    born: [3], survive: [1, 2, 3, 4, 5],
+  },
+  {
+    name: 'Diamoeba',
+    cols: 30, rows: 30, maxSeeds: 12, goal: 70,
+    rules: [
+      'Diamoeba (B35678/S5678):',
+      'Born: <span class="highlight">3, 5, 6, 7, 8</span> neighbors.',
+      'Survive: <span class="highlight">5, 6, 7, 8</span> neighbors.',
+      'Forms amoeba-like blobs that shift and grow.',
+    ],
+    born: [3, 5, 6, 7, 8], survive: [5, 6, 7, 8],
+  },
+  {
+    name: 'Minimalist',
+    cols: 20, rows: 20, maxSeeds: 5, goal: 35,
+    rules: [
+      'Classic Conway rules again, but...',
+      'Only <span class="highlight">5 seeds</span>.',
+      'The ultimate challenge. Find the most persistent pattern.',
+    ],
+    born: [3], survive: [2, 3],
+  },
+  {
+    name: 'Morley',
+    cols: 25, rows: 25, maxSeeds: 10, goal: 50,
+    rules: [
+      'Morley / Move (B368/S245):',
+      'Born: <span class="highlight">3, 6, 8</span> neighbors.',
+      'Survive: <span class="highlight">2, 4, 5</span> neighbors.',
+      'Chaotic and explosive — small seeds go far.',
+    ],
+    born: [3, 6, 8], survive: [2, 4, 5],
+  },
+  {
+    name: 'Grand Finale',
+    cols: 35, rows: 35, maxSeeds: 15, goal: 100,
+    rules: [
+      'Classic Conway on a big grid.',
+      '<span class="highlight">15 seeds</span>, goal: <span class="highlight">100 generations</span>.',
+      'Use everything you have learned.',
+    ],
+    born: [3], survive: [2, 3],
+  },
+];
+
+// ═══════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════
+let stageIdx = 0;
+let stage = null;
+let grid = [];        // 2D: 0 or 1
+let seedsPlaced = 0;
+let simRunning = false;
+let simTimer = null;
+let generation = 0;
+let peakAlive = 0;
+let bestGens = [];     // best per stage
+let mode = 'place';    // 'place' or 'sim'
+
+function initStage(idx) {
+  stageIdx = idx;
+  stage = STAGES[Math.min(idx, STAGES.length - 1)];
+  sizeGrid(stage.cols, stage.rows);
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  seedsPlaced = 0;
+  generation = 0;
+  peakAlive = 0;
+  mode = 'place';
+  simRunning = false;
+  if (simTimer) { clearInterval(simTimer); simTimer = null; }
+
+  document.getElementById('stage-num').textContent = idx + 1;
+  document.getElementById('goal-text').textContent = stage.goal + ' gens';
+  document.getElementById('best-text').textContent =
+    bestGens[idx] !== undefined ? bestGens[idx] + ' gens' : '---';
+
+  // Rules
+  const rulesEl = document.getElementById('rules');
+  rulesEl.innerHTML = `<div class="rule-title">${stage.name}</div>` +
+    stage.rules.map(r => `<div>${r}</div>`).join('');
+
+  updateSeedBar();
+  updateStats();
+  updateButtons();
+  drawGrid();
+
+  document.getElementById('result-screen').classList.remove('show');
+  document.getElementById('intro-screen').classList.remove('show');
+}
+
+// ═══════════════════════════════════════
+//  GRID RENDERING
+// ═══════════════════════════════════════
+function drawGrid() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, cvs.width, cvs.height);
+
+  // Grid lines
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 0.5;
+  for (let c = 0; c <= COLS; c++) {
+    ctx.beginPath(); ctx.moveTo(c * CELL, 0); ctx.lineTo(c * CELL, ROWS * CELL); ctx.stroke();
+  }
+  for (let r = 0; r <= ROWS; r++) {
+    ctx.beginPath(); ctx.moveTo(0, r * CELL); ctx.lineTo(COLS * CELL, r * CELL); ctx.stroke();
+  }
+
+  // Cells
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (grid[r][c]) {
+        const brightness = mode === 'place' ? 255 : Math.max(80, 255 - generation * 0.5);
+        ctx.fillStyle = `rgb(0,${Math.floor(brightness)},0)`;
+        ctx.fillRect(c * CELL + 1, r * CELL + 1, CELL - 2, CELL - 2);
+        // Slight inner glow
+        ctx.fillStyle = `rgba(0,255,0,0.15)`;
+        ctx.fillRect(c * CELL + 2, r * CELL + 2, CELL - 4, CELL - 4);
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════
+//  SIMULATION
+// ═══════════════════════════════════════
+function countNeighbors(r, c) {
+  let n = 0;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const rr = r + dr, cc = c + dc;
+      if (rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS) {
+        n += grid[rr][cc];
+      }
+    }
+  }
+  return n;
+}
+
+function step() {
+  const next = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  let alive = 0;
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const n = countNeighbors(r, c);
+      if (grid[r][c]) {
+        // Alive cell
+        if (stage.survive.includes(n)) { next[r][c] = 1; alive++; }
+      } else {
+        // Dead cell
+        if (stage.born.includes(n)) { next[r][c] = 1; alive++; }
+      }
+    }
+  }
+
+  grid = next;
+  generation++;
+  if (alive > peakAlive) peakAlive = alive;
+  updateStats();
+  drawGrid();
+
+  // Check if everything died
+  if (alive === 0) {
+    stopSim();
+    showResult();
+    return false;
+  }
+
+  // Check for static (no change) — compare grids
+  return true;
+}
+
+let prevGridStr = '';
+function stepAndCheck() {
+  const gridStr = grid.map(r => r.join('')).join('');
+  if (gridStr === prevGridStr) {
+    // Static — still life reached
+    stopSim();
+    showResult();
+    return;
+  }
+  prevGridStr = gridStr;
+
+  if (!step()) return;
+}
+
+function startSim() {
+  if (seedsPlaced === 0) return;
+  mode = 'sim';
+  simRunning = true;
+  prevGridStr = '';
+  updateButtons();
+  simTimer = setInterval(stepAndCheck, 120);
+}
+
+function stopSim() {
+  simRunning = false;
+  if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  updateButtons();
+}
+
+function showResult() {
+  const passed = generation >= stage.goal;
+  const prev = bestGens[stageIdx] || 0;
+  const isRecord = generation > prev;
+  if (isRecord) bestGens[stageIdx] = generation;
+
+  document.getElementById('result-title').textContent =
+    passed ? 'Survived!' : 'Simulation Over';
+  document.getElementById('result-gens').textContent = generation;
+  document.getElementById('result-label').textContent = 'generations survived';
+  document.getElementById('result-record').textContent =
+    isRecord ? 'New personal best!' : (prev > 0 ? `Personal best: ${prev}` : '');
+  document.getElementById('result-msg').textContent =
+    passed
+      ? (generation >= stage.goal * 2 ? 'Incredible! Way beyond the goal!' : `Goal of ${stage.goal} reached!`)
+      : `Goal was ${stage.goal} generations. Try a different seed pattern.`;
+
+  document.getElementById('btn-advance').style.display = passed ? '' : 'none';
+  document.getElementById('result-screen').classList.add('show');
+
+  document.getElementById('best-text').textContent = bestGens[stageIdx] + ' gens';
+}
+
+// ═══════════════════════════════════════
+//  INTERACTION
+// ═══════════════════════════════════════
+function cellFromEvent(e) {
+  const rect = cvs.getBoundingClientRect();
+  const x = (e.clientX || e.touches[0].clientX) - rect.left;
+  const y = (e.clientY || e.touches[0].clientY) - rect.top;
+  const c = Math.floor(x / CELL);
+  const r = Math.floor(y / CELL);
+  if (r >= 0 && r < ROWS && c >= 0 && c < COLS) return { r, c };
+  return null;
+}
+
+let painting = false;
+let paintMode = 1; // 1 = place, 0 = erase
+
+function toggleCell(r, c) {
+  if (mode !== 'place') return;
+  if (grid[r][c]) {
+    grid[r][c] = 0;
+    seedsPlaced--;
+  } else {
+    if (seedsPlaced >= stage.maxSeeds) return;
+    grid[r][c] = 1;
+    seedsPlaced++;
+  }
+  updateSeedBar();
+  drawGrid();
+}
+
+function startPaint(e) {
+  if (mode !== 'place') return;
+  e.preventDefault();
+  const pos = cellFromEvent(e);
+  if (!pos) return;
+  painting = true;
+  // If tapping a live cell, enter erase mode; otherwise, place mode
+  paintMode = grid[pos.r][pos.c] ? 0 : 1;
+  applyPaint(pos);
+}
+
+function movePaint(e) {
+  if (!painting) return;
+  e.preventDefault();
+  const pos = cellFromEvent(e);
+  if (!pos) return;
+  applyPaint(pos);
+}
+
+function applyPaint(pos) {
+  if (paintMode === 1) {
+    if (!grid[pos.r][pos.c] && seedsPlaced < stage.maxSeeds) {
+      grid[pos.r][pos.c] = 1;
+      seedsPlaced++;
+      updateSeedBar();
+      drawGrid();
+    }
+  } else {
+    if (grid[pos.r][pos.c]) {
+      grid[pos.r][pos.c] = 0;
+      seedsPlaced--;
+      updateSeedBar();
+      drawGrid();
+    }
+  }
+}
+
+function endPaint() { painting = false; }
+
+cvs.addEventListener('mousedown', startPaint);
+cvs.addEventListener('mousemove', movePaint);
+document.addEventListener('mouseup', endPaint);
+cvs.addEventListener('touchstart', startPaint, { passive: false });
+cvs.addEventListener('touchmove', movePaint, { passive: false });
+document.addEventListener('touchend', endPaint);
+
+// ═══════════════════════════════════════
+//  UI UPDATES
+// ═══════════════════════════════════════
+function updateSeedBar() {
+  const left = stage.maxSeeds - seedsPlaced;
+  const el = document.getElementById('seeds-left');
+  el.textContent = left;
+  el.className = 'seeds-left' + (left === 0 ? ' depleted' : '');
+  document.getElementById('seeds-max').textContent = stage.maxSeeds;
+}
+
+function updateStats() {
+  document.getElementById('stat-gen').textContent = generation;
+  let alive = 0;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) alive += grid[r][c];
+  document.getElementById('stat-alive').textContent = alive;
+  document.getElementById('stat-peak').textContent = peakAlive;
+}
+
+function updateButtons() {
+  document.getElementById('btn-clear').disabled = mode !== 'place';
+  document.getElementById('btn-step').disabled = mode !== 'place' && !simRunning;
+  document.getElementById('btn-go').disabled = simRunning || seedsPlaced === 0;
+  document.getElementById('btn-stop').disabled = !simRunning;
+  document.getElementById('btn-next').disabled = !bestGens[stageIdx] || bestGens[stageIdx] < stage.goal;
+}
+
+// ═══════════════════════════════════════
+//  BUTTONS
+// ═══════════════════════════════════════
+document.getElementById('btn-clear').addEventListener('click', () => initStage(stageIdx));
+document.getElementById('btn-step').addEventListener('click', () => {
+  if (mode === 'place' && seedsPlaced > 0) { mode = 'sim'; prevGridStr = ''; }
+  if (mode === 'sim') stepAndCheck();
+  updateButtons();
+});
+document.getElementById('btn-go').addEventListener('click', startSim);
+document.getElementById('btn-stop').addEventListener('click', () => {
+  stopSim();
+  showResult();
+});
+document.getElementById('btn-next').addEventListener('click', () => {
+  if (stageIdx + 1 < STAGES.length) initStage(stageIdx + 1);
+});
+document.getElementById('btn-start').addEventListener('click', () => {
+  document.getElementById('intro-screen').classList.remove('show');
+  initStage(0);
+});
+document.getElementById('btn-retry').addEventListener('click', () => {
+  document.getElementById('result-screen').classList.remove('show');
+  initStage(stageIdx);
+});
+document.getElementById('btn-advance').addEventListener('click', () => {
+  document.getElementById('result-screen').classList.remove('show');
+  if (stageIdx + 1 < STAGES.length) initStage(stageIdx + 1);
+});
+
+window.addEventListener('resize', () => {
+  if (stage) { sizeGrid(stage.cols, stage.rows); drawGrid(); }
+});
+
+// Init
+document.getElementById('intro-screen').classList.add('show');
+</script>
+</body>
+</html>
