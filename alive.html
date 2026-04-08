@@ -586,6 +586,7 @@ function updateSeedBar() {
   el.textContent = left;
   el.className = 'seeds-left' + (left === 0 ? ' depleted' : '');
   document.getElementById('seeds-max').textContent = stage.maxSeeds;
+  updateButtons();
 }
 
 function updateStats() {
