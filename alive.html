@@ -38,6 +38,19 @@ button.go{border-color:#0a0;color:#0f0}
 #stats{font-size:clamp(0.68rem,2.1vw,0.8rem);color:#555;display:flex;gap:1.2rem;flex-wrap:wrap;justify-content:center}
 #stats .val{color:#0f0}
 
+/* High scores */
+#highscores{width:90%;max-width:560px;padding:0.5rem 0;margin-top:0.3rem}
+#hs-title{font-size:clamp(0.65rem,2vw,0.75rem);color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.4rem;text-align:center}
+#hs-list{display:flex;gap:8px;overflow-x:auto;padding:4px 0;scrollbar-width:thin;scrollbar-color:#1a1a1a #000}
+#hs-list::-webkit-scrollbar{height:4px}
+#hs-list::-webkit-scrollbar-thumb{background:#1a1a1a;border-radius:2px}
+.hs-entry{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;transition:opacity 0.2s}
+.hs-entry:hover{opacity:0.8}
+.hs-entry canvas{border:1px solid #1a1a1a;border-radius:3px;background:#050505}
+.hs-entry .hs-score{font-size:clamp(0.6rem,1.8vw,0.72rem);color:#0f0}
+.hs-entry .hs-rank{font-size:clamp(0.55rem,1.6vw,0.65rem);color:#444}
+.hs-entry.hs-best canvas{border-color:#0a0}
+
 /* Overlays */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:100;flex-direction:column;align-items:center;justify-content:center;gap:0.8rem;padding:1.5rem;text-align:center}
 .overlay.show{display:flex}
@@ -76,6 +89,11 @@ button.go{border-color:#0a0;color:#0f0}
   <button id="btn-go" class="go">Run</button>
   <button id="btn-stop" disabled>Stop</button>
   <button id="btn-next" disabled>Next Stage</button>
+</div>
+
+<div id="highscores">
+  <div id="hs-title">Best Patterns</div>
+  <div id="hs-list"></div>
 </div>
 
 <div class="overlay" id="intro-screen">
@@ -240,6 +258,9 @@ let simTimer = null;
 let generation = 0;
 let peakAlive = 0;
 let bestGens = [];     // best per stage
+// High scores: array per stage, each entry = { seeds: [[r,c],...], score: N }
+let highScores = {};   // stageIdx -> sorted array of { seeds, score }
+const MAX_HIGHSCORES = 5;
 let mode = 'place';    // 'place' or 'sim'
 
 function initStage(idx) {
@@ -269,6 +290,7 @@ function initStage(idx) {
   updateStats();
   updateButtons();
   drawGrid();
+  renderHighScores();
 
   document.getElementById('result-screen').classList.remove('show');
   document.getElementById('intro-screen').classList.remove('show');
@@ -436,13 +458,20 @@ function showLoopThenResult() {
   }, 150);
 }
 
+let currentSeeds = []; // seed positions saved at start of run
+
 function startSim() {
   if (seedsPlaced === 0) return;
+  // Save the seed pattern before running
+  currentSeeds = [];
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      if (grid[r][c]) currentSeeds.push([r, c]);
+
   mode = 'sim';
   simRunning = true;
   stateHistory = new Set();
   loopDetected = false;
-  // Record initial state
   stateHistory.add(gridHash());
   updateButtons();
   simTimer = setInterval(stepAndCheck, 120);
@@ -460,6 +489,22 @@ function showResult() {
   const prev = bestGens[stageIdx] || 0;
   const isRecord = generation > prev;
   if (isRecord) bestGens[stageIdx] = generation;
+
+  // Record this attempt in high scores
+  if (generation > 0 && currentSeeds.length > 0) {
+    if (!highScores[stageIdx]) highScores[stageIdx] = [];
+    // Avoid duplicate patterns
+    const seedKey = currentSeeds.map(s => s.join(',')).sort().join('|');
+    const existing = highScores[stageIdx].find(h => h.key === seedKey);
+    if (existing) {
+      existing.score = Math.max(existing.score, generation);
+    } else {
+      highScores[stageIdx].push({ seeds: currentSeeds.slice(), score: generation, key: seedKey });
+    }
+    highScores[stageIdx].sort((a, b) => b.score - a.score);
+    if (highScores[stageIdx].length > MAX_HIGHSCORES) highScores[stageIdx].length = MAX_HIGHSCORES;
+    renderHighScores();
+  }
 
   // Determine end reason
   let alive = 0;
@@ -646,6 +691,85 @@ document.getElementById('btn-advance').addEventListener('click', () => {
 window.addEventListener('resize', () => {
   if (stage) { sizeGrid(stage.cols, stage.rows); drawGrid(); }
 });
+
+// ═══════════════════════════════════════
+//  HIGH SCORES DISPLAY
+// ═══════════════════════════════════════
+function renderHighScores() {
+  const list = document.getElementById('hs-list');
+  const title = document.getElementById('hs-title');
+  const scores = highScores[stageIdx];
+  if (!scores || scores.length === 0) {
+    list.innerHTML = '';
+    title.textContent = 'Best Patterns';
+    return;
+  }
+
+  title.textContent = `Best Patterns — ${stage.name}`;
+  list.innerHTML = '';
+
+  scores.forEach((entry, i) => {
+    const div = document.createElement('div');
+    div.className = 'hs-entry' + (i === 0 ? ' hs-best' : '');
+
+    // Draw miniature grid showing the seed pattern
+    const miniCell = Math.max(3, Math.min(5, Math.floor(60 / Math.max(COLS, ROWS))));
+    const miniW = COLS * miniCell;
+    const miniH = ROWS * miniCell;
+    const miniCvs = document.createElement('canvas');
+    miniCvs.width = miniW;
+    miniCvs.height = miniH;
+    miniCvs.style.width = miniW + 'px';
+    miniCvs.style.height = miniH + 'px';
+    const mctx = miniCvs.getContext('2d');
+
+    // Background
+    mctx.fillStyle = '#050505';
+    mctx.fillRect(0, 0, miniW, miniH);
+
+    // Draw seeds
+    const green = i === 0 ? '#0f0' : '#0a0';
+    mctx.fillStyle = green;
+    for (const [r, c] of entry.seeds) {
+      mctx.fillRect(c * miniCell, r * miniCell, miniCell, miniCell);
+    }
+
+    // Score label
+    const scoreEl = document.createElement('div');
+    scoreEl.className = 'hs-score';
+    scoreEl.textContent = entry.score + ' gen';
+
+    // Rank
+    const rankEl = document.createElement('div');
+    rankEl.className = 'hs-rank';
+    rankEl.textContent = '#' + (i + 1);
+
+    div.appendChild(miniCvs);
+    div.appendChild(scoreEl);
+    div.appendChild(rankEl);
+
+    // Click to load this pattern
+    div.addEventListener('click', () => loadPattern(entry.seeds));
+
+    list.appendChild(div);
+  });
+}
+
+function loadPattern(seeds) {
+  if (mode !== 'place') initStage(stageIdx);
+  // Clear and load
+  grid = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+  seedsPlaced = 0;
+  for (const [r, c] of seeds) {
+    if (r < ROWS && c < COLS) {
+      grid[r][c] = 1;
+      seedsPlaced++;
+    }
+  }
+  updateSeedBar();
+  drawGrid();
+  document.getElementById('result-screen').classList.remove('show');
+}
 
 // Init
 document.getElementById('intro-screen').classList.add('show');
