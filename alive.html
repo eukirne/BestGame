@@ -404,6 +404,8 @@ function stepAndCheck() {
 let loopDisplayTimer = null;
 
 function showLoopThenResult() {
+  // Hide controls during loop display
+  document.getElementById('controls').style.display = 'none';
   // Keep running the loop visually for ~2 seconds so player sees it
   let loopFrames = 0;
   const maxLoopFrames = 16;
@@ -496,6 +498,7 @@ function showResult() {
   document.getElementById('result-msg').textContent = msg;
 
   document.getElementById('btn-advance').style.display = passed ? '' : 'none';
+  document.getElementById('controls').style.display = '';
   document.getElementById('result-screen').classList.add('show');
 
   document.getElementById('best-text').textContent = bestGens[stageIdx] + ' gens';
