@@ -181,15 +181,15 @@ const STAGES = [
     born: [3, 6, 7, 8], survive: [3, 4, 6, 7, 8],
   },
   {
-    name: 'Seeds Only',
+    name: 'Famine',
     cols: 20, rows: 20, maxSeeds: 6, goal: 20,
     rules: [
-      '"Seeds" automaton:',
-      'No cell survives — all live cells die every turn.',
-      'A dead cell with exactly <span class="highlight">2</span> neighbors is born.',
-      'Everything flickers — can you keep it going?',
+      'Famine rules (B3/S01):',
+      'Born with exactly <span class="highlight">3</span> neighbors.',
+      'Survive with <span class="highlight">0 or 1</span> neighbors only.',
+      'Cells die easily — overcrowding is fatal. Only loners survive.',
     ],
-    born: [2], survive: [],
+    born: [3], survive: [0, 1],
   },
   {
     name: 'Maze Builder',
@@ -387,7 +387,14 @@ function step() {
     return false;
   }
 
-  // Check for static (no change) — compare grids
+  // Safety cap — if simulation runs way too long, stop it
+  const MAX_GENS = 2000;
+  if (generation >= MAX_GENS) {
+    stopSim();
+    showResult();
+    return false;
+  }
+
   return true;
 }
 
@@ -509,7 +516,8 @@ function showResult() {
   // Determine end reason
   let alive = 0;
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) alive += grid[r][c];
-  const reason = alive === 0 ? 'extinct' : loopDetected ? 'loop' : 'stopped';
+  const capped = generation >= 2000;
+  const reason = alive === 0 ? 'extinct' : loopDetected ? 'loop' : capped ? 'capped' : 'stopped';
 
   let title, label, msg;
   if (reason === 'extinct') {
@@ -518,15 +526,20 @@ function showResult() {
   } else if (reason === 'loop') {
     title = passed ? 'Survived!' : 'Endless Loop';
     label = 'generations before entering a cycle';
+  } else if (reason === 'capped') {
+    title = 'Unstoppable!';
+    label = 'generations — still going strong!';
   } else {
     title = 'Stopped';
     label = 'generations when stopped';
   }
 
   if (passed) {
-    msg = generation >= stage.goal * 2
-      ? 'Incredible! Way beyond the goal!'
-      : `Goal of ${stage.goal} reached!`;
+    msg = reason === 'capped'
+      ? 'Your pattern refused to die! Maximum generations reached!'
+      : generation >= stage.goal * 2
+        ? 'Incredible! Way beyond the goal!'
+        : `Goal of ${stage.goal} reached!`;
   } else {
     msg = reason === 'loop'
       ? `Pattern entered a repeating cycle at gen ${generation}. Goal: ${stage.goal}. Try different seeds.`
