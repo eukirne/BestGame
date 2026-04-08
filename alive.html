@@ -253,6 +253,7 @@ function initStage(idx) {
   mode = 'place';
   simRunning = false;
   if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  if (loopDisplayTimer) { clearInterval(loopDisplayTimer); loopDisplayTimer = null; }
 
   document.getElementById('stage-num').textContent = idx + 1;
   document.getElementById('goal-text').textContent = stage.goal + ' gens';
@@ -385,17 +386,52 @@ function gridHash() {
 }
 
 function stepAndCheck() {
+  // Step first
+  if (!step()) return; // step returns false on extinction
+
+  // Then check if new state was seen before
   const hash = gridHash();
   if (stateHistory.has(hash)) {
-    // Cycle detected — could be still life, blinker, or any oscillator
     loopDetected = true;
     stopSim();
-    showResult();
+    // Show the loop animating for a bit before showing score
+    showLoopThenResult();
     return;
   }
   stateHistory.add(hash);
+}
 
-  if (!step()) return;
+let loopDisplayTimer = null;
+
+function showLoopThenResult() {
+  // Keep running the loop visually for ~2 seconds so player sees it
+  let loopFrames = 0;
+  const maxLoopFrames = 16;
+  loopDisplayTimer = setInterval(() => {
+    // Step without checking — just animate the repeating pattern
+    const next = Array.from({length: ROWS}, () => Array(COLS).fill(0));
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const n = countNeighbors(r, c);
+        if (grid[r][c]) { if (stage.survive.includes(n)) next[r][c] = 1; }
+        else { if (stage.born.includes(n)) next[r][c] = 1; }
+      }
+    }
+    grid = next;
+    drawGrid();
+    // Flash cells between green and yellow to indicate loop
+    ctx.fillStyle = `rgba(255,255,0,${0.1 + Math.sin(loopFrames * 0.8) * 0.08})`;
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        if (grid[r][c]) ctx.fillRect(c * CELL + 1, r * CELL + 1, CELL - 2, CELL - 2);
+
+    loopFrames++;
+    if (loopFrames >= maxLoopFrames) {
+      clearInterval(loopDisplayTimer);
+      loopDisplayTimer = null;
+      showResult();
+    }
+  }, 150);
 }
 
 function startSim() {
@@ -404,7 +440,7 @@ function startSim() {
   simRunning = true;
   stateHistory = new Set();
   loopDetected = false;
-  // Add initial state
+  // Record initial state
   stateHistory.add(gridHash());
   updateButtons();
   simTimer = setInterval(stepAndCheck, 120);
@@ -413,6 +449,7 @@ function startSim() {
 function stopSim() {
   simRunning = false;
   if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  if (loopDisplayTimer) { clearInterval(loopDisplayTimer); loopDisplayTimer = null; }
   updateButtons();
 }
 
@@ -572,7 +609,12 @@ function updateButtons() {
 // ═══════════════════════════════════════
 document.getElementById('btn-clear').addEventListener('click', () => initStage(stageIdx));
 document.getElementById('btn-step').addEventListener('click', () => {
-  if (mode === 'place' && seedsPlaced > 0) { mode = 'sim'; prevGridStr = ''; }
+  if (mode === 'place' && seedsPlaced > 0) {
+    mode = 'sim';
+    stateHistory = new Set();
+    loopDetected = false;
+    stateHistory.add(gridHash());
+  }
   if (mode === 'sim') stepAndCheck();
   updateButtons();
 });
