@@ -181,15 +181,15 @@ const STAGES = [
     born: [3, 6, 7, 8], survive: [3, 4, 6, 7, 8],
   },
   {
-    name: 'Famine',
-    cols: 20, rows: 20, maxSeeds: 6, goal: 20,
+    name: 'Hermit',
+    cols: 20, rows: 20, maxSeeds: 8, goal: 30,
     rules: [
-      'Famine rules (B3/S01):',
+      'Hermit rules (B3/S12):',
       'Born with exactly <span class="highlight">3</span> neighbors.',
-      'Survive with <span class="highlight">0 or 1</span> neighbors only.',
-      'Cells die easily — overcrowding is fatal. Only loners survive.',
+      'Survive with <span class="highlight">1 or 2</span> neighbors.',
+      'Crowds are deadly — cells thrive alone or in pairs.',
     ],
-    born: [3], survive: [0, 1],
+    born: [3], survive: [1, 2],
   },
   {
     name: 'Maze Builder',
